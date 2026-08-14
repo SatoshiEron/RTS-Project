@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>RTS Engine</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    /* Базовые стили (если style.css не подгрузится) */
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #0a0d14;
+      color: #fff;
+      font-family: 'Segoe UI', sans-serif;
+      user-select: none;
+    }
+    #gameCanvas {
+      width: 100vw;
+      height: 100vh;
+      display: block;
+      background: #000;
+      cursor: grab;
+    }
+    #gameCanvas:active {
+      cursor: grabbing;
+    }
+    #fileLoaderBox {
+      position: absolute;
+      top: 16px;
+      left: 16px;
+      z-index: 10;
+      background: rgba(10, 13, 20, 0.85);
+      backdrop-filter: blur(8px);
+      padding: 12px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-size: 13px;
+      min-width: 180px;
+    }
+    #fileLoaderBox label {
+      color: #8899bb;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    #fileLoaderBox input[type="file"] {
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: #e0e6f5;
+      font-size: 12px;
+      cursor: pointer;
+    }
+    #fileLoaderBox input[type="file"]::file-selector-button {
+      background: rgba(255, 255, 255, 0.05);
+      border: none;
+      border-radius: 4px;
+      padding: 4px 12px;
+      color: #e0e6f5;
+      cursor: pointer;
+      font-size: 12px;
+    }
+    #fileLoaderBox input[type="file"]::file-selector-button:hover {
+      background: rgba(255, 255, 255, 0.1);
+    }
+    #infoPanel {
+      position: absolute;
+      bottom: 16px;
+      left: 16px;
+      z-index: 10;
+      background: rgba(10, 13, 20, 0.75);
+      backdrop-filter: blur(8px);
+      padding: 10px 16px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 12px;
+      color: #8899bb;
+      min-width: 200px;
+      pointer-events: none;
+      font-family: 'Consolas', monospace;
+    }
+    #goldDisplay {
+      position: absolute;
+      top: 16px;
+      right: 16px;
+      z-index: 10;
+      background: rgba(10, 13, 20, 0.85);
+      backdrop-filter: blur(8px);
+      padding: 10px 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 215, 0, 0.15);
+      font-size: 14px;
+      color: #ffd700;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    #aiGoldDisplay {
+      position: absolute;
+      top: 66px;
+      right: 16px;
+      z-index: 10;
+      background: rgba(10, 13, 20, 0.85);
+      backdrop-filter: blur(8px);
+      padding: 8px 16px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 80, 80, 0.15);
+      font-size: 13px;
+      color: #ff6666;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    /* ===== СТИЛИ ПАНЕЛИ ГОРОДА (встроены на случай, если style.css не загрузился) ===== */
+    .city-panel-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      z-index: 999;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+    .city-panel-overlay.visible {
+      display: block;
+      opacity: 1;
+    }
+    .city-panel {
+      position: fixed;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%) translateY(120%);
+      background: rgba(10, 15, 30, 0.95);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 20px 24px 24px;
+      min-width: 340px;
+      max-width: 420px;
+      width: 90%;
+      color: #e0e6f5;
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.9);
+      z-index: 1000;
+      transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: auto;
+      display: none;
+    }
+    .city-panel.visible {
+      transform: translateX(-50%) translateY(0);
+      display: block;
+    }
+    .city-panel .close-btn {
+      position: absolute;
+      top: 12px;
+      right: 16px;
+      background: none;
+      border: none;
+      color: #556688;
+      font-size: 22px;
+      cursor: pointer;
+      transition: color 0.2s;
+      padding: 4px 8px;
+      line-height: 1;
+    }
+    .city-panel .close-btn:hover {
+      color: #e0e6f5;
+    }
+    .city-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-right: 32px;
+    }
+    .city-panel-header h2 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      color: #fff;
+    }
+    .city-owner {
+      font-size: 12px;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+    .city-owner.player {
+      background: rgba(50, 150, 255, 0.2);
+      color: #4a9eff;
+    }
+    .city-owner.ai {
+      background: rgba(255, 80, 80, 0.2);
+      color: #ff6666;
+    }
+    .city-owner.neutral {
+      background: rgba(200, 200, 200, 0.08);
+      color: #7788aa;
+    }
+    .city-panel-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 16px;
+      margin-bottom: 18px;
+    }
+    .city-stat {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+    .city-stat .label {
+      color: #556688;
+      font-size: 13px;
+    }
+    .city-stat .value {
+      color: #e0e6f5;
+      font-weight: 500;
+      font-size: 13px;
+    }
+    .city-panel-actions {
+      display: flex;
+      gap: 10px;
+    }
+    .city-panel-actions .action-btn {
+      flex: 1;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      color: #e0e6f5;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+    .city-panel-actions .action-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-1px);
+    }
+    .city-panel-actions .action-btn:active {
+      transform: translateY(0);
+    }
+    .city-panel-actions .action-btn:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      transform: none !important;
+    }
+  </style>
+</head>
+
+<body>
+  <!-- ===== ЗАГРУЗЧИК ===== -->
+  <div id="fileLoaderBox">
+    <label>📂 Загрузить world.json</label>
+    <input id="fileLoader" type="file" accept=".json" />
+    <label style="margin-top:4px;">🖼️ Загрузить карту (PNG)</label>
+    <input id="imageLoader" type="file" accept="image/png" />
+  </div>
+
+  <!-- ===== ИНФОПАНЕЛЬ ===== -->
+  <div id="infoPanel">📡 Ожидание загрузки карты...</div>
+
+  <!-- ===== ЗОЛОТО ===== -->
+  <div id="goldDisplay">
+    <span>👤</span>
+    <span>🪙</span>
+    <span id="goldAmount">0</span>
+    <span id="goldChange">+0</span>
+  </div>
+  <div id="aiGoldDisplay">
+    <span>🤖</span>
+    <span>🪙</span>
+    <span id="aiGoldAmount">0</span>
+    <span id="aiGoldChange">+0</span>
+  </div>
+
+  <!-- ===== CANVAS ===== -->
+  <canvas id="gameCanvas"></canvas>
+
+  <!-- ===== СКРИПТЫ ===== -->
+  <script type="module">
+    import CityPanel from "./js/ui/CityPanel.js";
+    import GameState from "./js/core/GameState.js";
+    import Renderer from "./js/core/Renderer.js";
+    import InputHandler from "./js/core/InputHandler.js";
+    import Camera from "./js/core/Camera.js";
+    import SelectionManager from "./js/core/SelectionManager.js";
+
+    const canvas = document.getElementById("gameCanvas");
+    const infoPanel = document.getElementById("infoPanel");
+    const goldAmount = document.getElementById("goldAmount");
+    const goldChange = document.getElementById("goldChange");
+    const aiGoldAmount = document.getElementById("aiGoldAmount");
+    const aiGoldChange = document.getElementById("aiGoldChange");
+
+    function resize() {
+      canvas.width = window.innerWidth;
+      canvas.height = window.innerHeight;
+    }
+    resize();
+    window.addEventListener("resize", resize);
+
+    let game = null;
+    let renderer = null;
+    let input = null;
+    let camera = null;
+    let cityPanel = null;
+
+    const fileLoader = document.getElementById("fileLoader");
+    const imageLoader = document.getElementById("imageLoader");
+
+    fileLoader.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      try {
+        const text = await file.text();
+        const world = JSON.parse(text);
+
+        game = new GameState(world);
+        camera = new Camera(canvas);
+        camera.centerOnWorld();
+        renderer = new Renderer(canvas, game, camera);
+        cityPanel = new CityPanel(game);
+        input = new InputHandler(canvas, game, renderer, camera, cityPanel);
+        renderer.setInputHandler(input);
+
+        // ===== СОЗДАЁМ SELECTION MANAGER ПОСЛЕ ВСЕХ =====
+        const selectionManager = new SelectionManager(canvas, game, camera, renderer);
+
+        infoPanel.textContent = "✅ Карта загружена!";
+        loop();
+      } catch (err) {
+        console.error("❌ Ошибка загрузки:", err);
+        infoPanel.textContent = "❌ Ошибка: " + err.message;
+      }
+    });
+
+    imageLoader.addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = () => {
+        const img = new Image();
+        img.src = reader.result;
+        img.onload = () => {
+          if (renderer) {
+            renderer.setBackgroundImage(img);
+          }
+        };
+      };
+      reader.readAsDataURL(file);
+    });
+
+    function updateInfoPanel() {
+      if (!game) {
+        infoPanel.textContent = "📡 Ожидание загрузки карты...";
+        return;
+      }
+
+      // Золото игрока
+      if (goldAmount) {
+        goldAmount.textContent = Math.floor(game.playerGold);
+      }
+      if (goldChange) {
+        const change = game.goldPerTurn || 0;
+        const sign = change >= 0 ? "+" : "";
+        goldChange.textContent = `${sign}${change}`;
+        goldChange.style.color = change >= 0 ? "#66cc88" : "#ff6666";
+      }
+
+      // Золото ИИ
+      if (aiGoldAmount) {
+        aiGoldAmount.textContent = Math.floor(game.aiGold);
+      }
+      if (aiGoldChange) {
+        let aiIncome = 0;
+        for (const city of game.cities) {
+          if (city.owner === game.aiId) {
+            aiIncome += game.getCityIncome(city);
+          }
+        }
+        const sign = aiIncome >= 0 ? "+" : "";
+        aiGoldChange.textContent = `${sign}${aiIncome}`;
+        aiGoldChange.style.color = aiIncome >= 0 ? "#66cc88" : "#ff6666";
+      }
+
+      if (game.selectedCity) {
+        const c = game.selectedCity;
+        infoPanel.textContent = `🏙️ ${c.name || "Город"} (уровень ${c.level || 1})`;
+        return;
+      }
+      if (game.selectedPoint) {
+        const p = game.selectedPoint;
+        const type = p.cityType ? `, ${p.cityType}` : "";
+        infoPanel.textContent = `📍 Точка #${p.id} (${p.x.toFixed(3)}, ${p.y.toFixed(3)})${type}`;
+        return;
+      }
+      if (game.selectedProvince) {
+        const prov = game.selectedProvince;
+        infoPanel.textContent = `🗺️ Провинция: ${prov.name || prov.id}`;
+        return;
+      }
+      const stats = game.getStats();
+      infoPanel.textContent =
+        `📍 ${stats.points} точек | 🛤️ ${stats.roads} дорог | 🏛️ ${stats.provinces} провинций | 🏙️ ${game.cities.length} городов`;
+    }
+
+    function loop() {
+      if (!game || !renderer) return;
+
+      const dt = 0.016;
+      game.update(dt);
+      renderer.render();
+      updateInfoPanel();
+
+      requestAnimationFrame(loop);
+    }
+
+    window.addEventListener("resize", () => {
+      if (camera) {
+        camera.centerOnWorld();
+      }
+    });
+  </script>
+</body>
+</html>

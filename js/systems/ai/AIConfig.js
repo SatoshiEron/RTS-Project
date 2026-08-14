@@ -1,0 +1,30 @@
+export default {
+  THINK_INTERVAL: 2.0,
+
+  // Экономика
+  UNIT_COST: 30,
+  UPGRADE_COST: 40,
+  RECRUIT_THRESHOLD: 50,
+  UPGRADE_THRESHOLD: 80,
+
+  // Военные
+  ATTACK_RADIUS: 0.12,
+  DEFEND_RADIUS: 0.15,
+  ATTACK_THRESHOLD: 1.5,  // Нужно в 1.5 раза больше юнитов для атаки
+  RETREAT_HP_RATIO: 0.3,
+
+  // Расширение
+  CAPTURE_RADIUS: 0.10,
+
+  // Юниты
+  MAX_UNITS_PER_TASK: 3,
+  PATROL_RADIUS: 0.08,
+  SPAWN_JITTER: 0.005,
+
+  // Приоритеты задач
+  PRIORITY_DEFEND: 10,
+  PRIORITY_CAPTURE_CITY: 9,
+  PRIORITY_CAPTURE_PROVINCE: 8,
+  PRIORITY_ATTACK: 6,
+  PRIORITY_PATROL: 2
+};
