@@ -8,11 +8,21 @@ export default class Renderer {
     this.selectionManager = null;
     this.bgImage = null;
     this.bgLoaded = false;
+    this.paused = false;
+
+    // ===== ЗОНЫ КОНТРОЛЯ (в мировых координатах) =====
+    this.fogMode = 0; // 0 = все зоны, 1 = только спорные, 2 = выкл
+    this.fogCityRadius = 0.12;   // мировые единицы
+    this.fogUnitRadius = 0.07;   // мировые единицы
+  }
+
+  showPauseOverlay(paused) {
+    this.paused = paused;
   }
 
   setSelectionManager(manager) {
     this.selectionManager = manager;
-}
+  }
 
   setInputHandler(handler) {
     this.inputHandler = handler;
@@ -31,13 +41,18 @@ export default class Renderer {
     const ctx = this.ctx;
     ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
 
+    // ===== ФОН (в мировых координатах, как и вся карта) =====
     if (this.bgLoaded && this.bgImage) {
+      const topLeft = this.camera.worldToScreen(0, 0);
+      const bottomRight = this.camera.worldToScreen(1, 1);
+
+      const x = topLeft.x;
+      const y = topLeft.y;
+      const w = bottomRight.x - topLeft.x;
+      const h = bottomRight.y - topLeft.y;
+
       ctx.save();
-      ctx.translate(this.camera.offsetX, this.camera.offsetY);
-      ctx.scale(this.camera.zoom, this.camera.zoom);
-      ctx.globalAlpha = 0.5;
-      ctx.drawImage(this.bgImage, 0, 0, this.canvas.width, this.canvas.height);
-      ctx.globalAlpha = 1.0;
+      ctx.drawImage(this.bgImage, x, y, w, h);
       ctx.restore();
     } else {
       ctx.fillStyle = "#0a0d14";
@@ -47,6 +62,9 @@ export default class Renderer {
     const map = this.game.map;
     if (!map) return;
 
+    // ===== ЗОНЫ КОНТРОЛЯ (перед провинциями) =====
+    this.drawFogOfWar();
+
     this.drawProvinces(map.provinces || []);
 
     const roads = (map.roads || []).filter(r => r.type === 'road' || r.type === undefined);
@@ -55,9 +73,8 @@ export default class Renderer {
     this.drawRoads(rails, "#ffcc00", 3, [6, 4]);
 
     this.drawFrontline();
-
     this.drawPoints(map.points || []);
-
+    
     for (const city of this.game.cities || []) {
       this.drawCity(city);
     }
@@ -68,28 +85,44 @@ export default class Renderer {
 
     this.drawUnitTarget();
 
-   // ===== РАМКА ВЫДЕЛЕНИЯ =====
-if (this.selectionManager) {
-  const rect = this.selectionManager.getSelectionRect();
-  if (rect) {
-    const p1 = this.worldToScreen(rect.x1, rect.y1);
-    const p2 = this.worldToScreen(rect.x2, rect.y2);
-    const x = Math.min(p1.x, p2.x);
-    const y = Math.min(p1.y, p2.y);
-    const w = Math.abs(p1.x - p2.x);
-    const h = Math.abs(p1.y - p2.y);
+    // ===== РАМКА ВЫДЕЛЕНИЯ =====
+    if (this.selectionManager) {
+      const rect = this.selectionManager.getSelectionRect();
+      if (rect) {
+        const p1 = this.worldToScreen(rect.x1, rect.y1);
+        const p2 = this.worldToScreen(rect.x2, rect.y2);
+        const x = Math.min(p1.x, p2.x);
+        const y = Math.min(p1.y, p2.y);
+        const w = Math.abs(p1.x - p2.x);
+        const h = Math.abs(p1.y - p2.y);
 
-    ctx.save();
-    ctx.strokeStyle = 'rgba(74, 158, 255, 0.6)';
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([5, 5]);
-    ctx.fillStyle = 'rgba(74, 158, 255, 0.08)';
-    ctx.fillRect(x, y, w, h);
-    ctx.strokeRect(x, y, w, h);
-    ctx.setLineDash([]);
-    ctx.restore();
-  }
-}
+        ctx.save();
+        ctx.strokeStyle = 'rgba(74, 158, 255, 0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 5]);
+        ctx.fillStyle = 'rgba(74, 158, 255, 0.08)';
+        ctx.fillRect(x, y, w, h);
+        ctx.strokeRect(x, y, w, h);
+        ctx.setLineDash([]);
+        ctx.restore();
+      }
+    }
+
+    // ===== ПАУЗА =====
+    if (this.paused) {
+      ctx.save();
+      ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
+      ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+      ctx.fillStyle = '#ffffff';
+      ctx.font = '48px Segoe UI';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('⏸ ПАУЗА', this.canvas.width / 2, this.canvas.height / 2 - 20);
+      ctx.font = '18px Segoe UI';
+      ctx.fillStyle = '#aaaaaa';
+      ctx.fillText('Нажмите ESC, чтобы продолжить', this.canvas.width / 2, this.canvas.height / 2 + 40);
+      ctx.restore();
+    }
 
     this.drawSelection();
   }
@@ -364,57 +397,129 @@ if (this.selectionManager) {
     ctx.restore();
   }
 
-  drawFrontline() {
-  const ctx = this.ctx;
-  const provinces = this.game.map.provinces || [];
+  drawFogOfWar() {
+    if (this.fogMode === 2) return;
 
-  // Временно отключаем логи
-  // console.log('🔍 ЛИНИЯ ФРОНТА:');
-  // console.log(`  Всего провинций: ${provinces.length}`);
+    const cities = this.game.cities || [];
+    const units = this.game.units || [];
 
-  let ownedProvinces = 0;
-  let edgesFound = 0;
+    const playerSources = [];
+    const aiSources = [];
 
-  for (let i = 0; i < provinces.length; i++) {
-    const prov = provinces[i];
-    if (!prov.vertices || prov.vertices.length < 3) continue;
-    if (prov.owner === 0) continue;
+    for (const city of cities) {
+      if (city.owner === this.game.playerId) {
+        playerSources.push({ x: city.x, y: city.y, r: this.fogCityRadius, isCity: true });
+      } else if (city.owner === this.game.aiId) {
+        aiSources.push({ x: city.x, y: city.y, r: this.fogCityRadius, isCity: true });
+      }
+    }
 
-    ownedProvinces++;
+    for (const unit of units) {
+      if (!unit.isAlive()) continue;
+      if (unit.owner === this.game.playerId) {
+        playerSources.push({ x: unit.x, y: unit.y, r: this.fogUnitRadius, isCity: false });
+      } else if (unit.owner === this.game.aiId) {
+        aiSources.push({ x: unit.x, y: unit.y, r: this.fogUnitRadius, isCity: false });
+      }
+    }
 
-    for (let j = i + 1; j < provinces.length; j++) {
-      const neighbor = provinces[j];
-      if (!neighbor.vertices || neighbor.vertices.length < 3) continue;
-      if (neighbor.owner === 0) continue;
-      if (neighbor.owner === prov.owner) continue;
+    if (this.fogMode === 0) {
+      for (const s of playerSources) {
+        this.drawFogZone(s.x, s.y, s.r, '40, 220, 120', s.isCity ? 0.42 : 0.28);
+      }
+      for (const s of aiSources) {
+        this.drawFogZone(s.x, s.y, s.r, '255, 70, 70', s.isCity ? 0.36 : 0.22);
+      }
+    }
 
-      const edge = this.getSharedEdge(prov, neighbor);
-      if (edge) {
-        edgesFound++;
-        const p1 = this.worldToScreen(edge[0].x, edge[0].y);
-        const p2 = this.worldToScreen(edge[1].x, edge[1].y);
+    if (this.fogMode === 0 || this.fogMode === 1) {
+      for (const p of playerSources) {
+        for (const a of aiSources) {
+          const dx = p.x - a.x;
+          const dy = p.y - a.y;
+          const d = Math.sqrt(dx * dx + dy * dy);
+          const overlap = p.r + a.r - d;
 
-        ctx.save();
-        ctx.strokeStyle = '#ffdd44';
-        ctx.lineWidth = 3;
-        ctx.shadowColor = '#ffdd44';
-        ctx.shadowBlur = 12;
-        ctx.setLineDash([8, 6]);
-        ctx.beginPath();
-        ctx.moveTo(p1.x, p1.y);
-        ctx.lineTo(p2.x, p2.y);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.shadowBlur = 0;
-        ctx.restore();
+          if (overlap > 0) {
+            const t = p.r / (p.r + a.r);
+            const cx = p.x + (a.x - p.x) * t;
+            const cy = p.y + (a.y - p.y) * t;
+            const contestRadius = Math.min(overlap * 0.7, Math.min(p.r, a.r) * 0.85);
+
+            if (contestRadius > 0.01) {
+              this.drawFogZone(cx, cy, contestRadius, '255, 200, 50', 0.38);
+            }
+          }
+        }
       }
     }
   }
 
-  // Временно отключаем логи
-  // console.log(`  Провинций с владельцем: ${ownedProvinces}`);
-  // console.log(`  Найдено общих границ: ${edgesFound}`);
-}
+  drawFogZone(cx, cy, radius, rgb, intensity) {
+    const ctx = this.ctx;
+
+    const screenPos = this.worldToScreen(cx, cy);
+
+    const p1 = this.worldToScreen(cx, cy);
+    const p2 = this.worldToScreen(cx + radius, cy);
+    const pixelRadius = Math.abs(p2.x - p1.x);
+
+    if (pixelRadius < 1) return;
+
+    const g = ctx.createRadialGradient(
+      screenPos.x, screenPos.y, 0,
+      screenPos.x, screenPos.y, pixelRadius
+    );
+    g.addColorStop(0,   `rgba(${rgb}, ${intensity})`);
+    g.addColorStop(0.45, `rgba(${rgb}, ${intensity * 0.7})`);
+    g.addColorStop(0.75, `rgba(${rgb}, ${intensity * 0.28})`);
+    g.addColorStop(1,   `rgba(${rgb}, 0)`);
+
+    ctx.save();
+    ctx.fillStyle = g;
+    ctx.beginPath();
+    ctx.arc(screenPos.x, screenPos.y, pixelRadius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+
+  drawFrontline() {
+    const ctx = this.ctx;
+    const provinces = this.game.map.provinces || [];
+
+    for (let i = 0; i < provinces.length; i++) {
+      const prov = provinces[i];
+      if (!prov.vertices || prov.vertices.length < 3) continue;
+      if (prov.owner === 0) continue;
+
+      for (let j = i + 1; j < provinces.length; j++) {
+        const neighbor = provinces[j];
+        if (!neighbor.vertices || neighbor.vertices.length < 3) continue;
+        if (neighbor.owner === 0) continue;
+        if (neighbor.owner === prov.owner) continue;
+
+        const edge = this.getSharedEdge(prov, neighbor);
+        if (edge) {
+          const p1 = this.worldToScreen(edge[0].x, edge[0].y);
+          const p2 = this.worldToScreen(edge[1].x, edge[1].y);
+
+          ctx.save();
+          ctx.strokeStyle = '#ffdd44';
+          ctx.lineWidth = 3;
+          ctx.shadowColor = '#ffdd44';
+          ctx.shadowBlur = 12;
+          ctx.setLineDash([8, 6]);
+          ctx.beginPath();
+          ctx.moveTo(p1.x, p1.y);
+          ctx.lineTo(p2.x, p2.y);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          ctx.shadowBlur = 0;
+          ctx.restore();
+        }
+      }
+    }
+  }
 
   getSharedEdge(prov1, prov2) {
     const v1 = prov1.vertices || [];

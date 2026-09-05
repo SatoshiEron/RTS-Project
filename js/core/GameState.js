@@ -43,6 +43,9 @@ export default class GameState {
     this.aiTasks = [];
 
     this.running = true;
+    this.paused = false;
+    this.speedMultiplier = 1.0;
+
     this.playerId = 1;
     this.aiId = 2;
 
@@ -79,6 +82,19 @@ export default class GameState {
     return this.grid[idx] === 1;
   }
 
+  // ===== ПАУЗА =====
+  togglePause() {
+    this.paused = !this.paused;
+    console.log(this.paused ? "⏸ Игра на паузе" : "▶ Игра продолжена");
+    return this.paused;
+  }
+
+  // ===== РЕГУЛИРОВКА СКОРОСТИ =====
+  setSpeed(speed) {
+    this.speedMultiplier = Math.max(0.1, Math.min(5.0, speed));
+    console.log(`⚡ Скорость игры: ${this.speedMultiplier.toFixed(1)}x`);
+  }
+
   // ===== ИНДЕКСЫ =====
   buildIndexes() {
     for (const p of this.map.points || []) {
@@ -97,7 +113,7 @@ export default class GameState {
   }
 
   normalizeGeometry() {
-    const getPoint = id => this.pointsById.get(id);
+    const getPoint = (id) => this.pointsById.get(id);
 
     const convertLines = (arr) => {
       if (!arr) return;
@@ -105,7 +121,7 @@ export default class GameState {
         obj.points = (obj.pointIds || [])
           .map(getPoint)
           .filter(Boolean)
-          .map(p => ({ x: p.x, y: p.y }));
+          .map((p) => ({ x: p.x, y: p.y }));
       }
     };
 
@@ -119,14 +135,14 @@ export default class GameState {
           prov.vertices = prov.vertexIds
             .map(getPoint)
             .filter(Boolean)
-            .map(p => ({ x: p.x, y: p.y }));
+            .map((p) => ({ x: p.x, y: p.y }));
         }
       }
     }
   }
 
   getRoadsByType(type) {
-    return (this.map.roads || []).filter(r => r.type === type);
+    return (this.map.roads || []).filter((r) => r.type === type);
   }
 
   // ===== ИНИЦИАЛИЗАЦИЯ ИЗ WORLD =====
@@ -161,12 +177,12 @@ export default class GameState {
           name: p.name || `Город #${p.id}`,
           x: p.x,
           y: p.y,
-          type: p.cityType || 'city',
+          type: p.cityType || "city",
           provinceId: provinceId,
           owner: owner,
           population: 1000,
           income: 10,
-          level: 1
+          level: 1,
         });
 
         this.cities.push(city);
@@ -196,13 +212,17 @@ export default class GameState {
         const prov = this.provincesById.get(city.provinceId);
         if (prov && prov.owner === 0) {
           prov.owner = city.owner;
-          console.log(`🗺️ Провинция #${prov.id} теперь принадлежит ${city.owner === this.playerId ? 'игроку' : 'ИИ'}`);
+          console.log(
+            `🗺️ Провинция #${prov.id} теперь принадлежит ${
+              city.owner === this.playerId ? "игроку" : "ИИ"
+            }`
+          );
         }
       }
     }
 
-    const playerCity = this.cities.find(c => c.owner === this.playerId);
-    const aiCity = this.cities.find(c => c.owner === this.aiId);
+    const playerCity = this.cities.find((c) => c.owner === this.playerId);
+    const aiCity = this.cities.find((c) => c.owner === this.aiId);
 
     if (playerCity) {
       this.spawnUnit({
@@ -211,11 +231,11 @@ export default class GameState {
         y: playerCity.y,
         speed: 0.05,
         hp: 100,
-        role: 'infantry'
+        role: "infantry",
       });
       console.log(`👤 Юнит игрока создан в "${playerCity.name}"`);
     } else {
-      console.warn('⚠️ Не найден город игрока!');
+      console.warn("⚠️ Не найден город игрока!");
     }
 
     if (aiCity) {
@@ -225,11 +245,11 @@ export default class GameState {
         y: aiCity.y,
         speed: 0.04,
         hp: 100,
-        role: 'infantry'
+        role: "infantry",
       });
       console.log(`🤖 Юнит ИИ создан в "${aiCity.name}"`);
     } else {
-      console.warn('⚠️ Не найден город ИИ!');
+      console.warn("⚠️ Не найден город ИИ!");
     }
   }
 
@@ -244,7 +264,7 @@ export default class GameState {
     defense = 5,
     vision = 0.05,
     provinceId = null,
-    role = 'infantry'
+    role = "infantry",
   }) {
     const id = this.units.length + 1;
     const unit = new Unit({
@@ -258,7 +278,7 @@ export default class GameState {
       defense,
       vision,
       provinceId,
-      role
+      role,
     });
     this.units.push(unit);
     return unit;
@@ -286,7 +306,7 @@ export default class GameState {
   }
 
   clearCompletedTasks() {
-    this.aiTasks = this.aiTasks.filter(t => !t.completed);
+    this.aiTasks = this.aiTasks.filter((t) => !t.completed);
   }
 
   // ===== ЭКОНОМИКА =====
@@ -309,9 +329,51 @@ export default class GameState {
     return income;
   }
 
+  /**
+   * Возвращает доход, содержание и чистый доход для указанного владельца.
+   * @param {number} ownerId - ID игрока или ИИ
+   * @returns {{ income: number, upkeep: number, net: number }}
+   */
+  getNetIncome(ownerId) {
+    let income = 0;
+    let upkeep = 0;
+
+    // Доход с городов
+    for (const city of this.cities) {
+      if (city.owner === ownerId) {
+        income += this.getCityIncome(city);
+      }
+    }
+
+    // Доход с провинций
+    for (const prov of this.map.provinces || []) {
+      if (
+        prov.owner === ownerId &&
+        prov.vertices &&
+        prov.vertices.length >= 3
+      ) {
+        income += 5;
+      }
+    }
+
+    // Содержание юнитов (1 золото за живого юнита)
+    for (const unit of this.units) {
+      if (unit.owner === ownerId && unit.isAlive()) {
+        upkeep += 1;
+      }
+    }
+
+    return {
+      income,
+      upkeep,
+      net: income - upkeep,
+    };
+  }
+
   updateEconomy() {
     this.goldPerTurn = 0;
 
+    // Доход с городов
     for (const city of this.cities) {
       const income = this.getCityIncome(city);
       if (city.owner === this.playerId) {
@@ -322,9 +384,12 @@ export default class GameState {
       }
     }
 
+    // Доход с провинций
     for (const prov of this.map.provinces || []) {
       if (!prov.vertices || prov.vertices.length < 3) continue;
+
       const provIncome = prov.owner !== 0 ? 5 : 0;
+
       if (prov.owner === this.playerId) {
         this.playerGold += provIncome;
         this.goldPerTurn += provIncome;
@@ -333,11 +398,19 @@ export default class GameState {
       }
     }
 
-    const playerUnits = this.units.filter(u => u.owner === this.playerId);
-    const aiUnits = this.units.filter(u => u.owner === this.aiId);
+    // Содержание только живых юнитов
+    const playerUnits = this.units.filter(
+      (u) => u.owner === this.playerId && u.isAlive()
+    );
+    const aiUnits = this.units.filter(
+      (u) => u.owner === this.aiId && u.isAlive()
+    );
 
     this.playerGold -= playerUnits.length;
     this.aiGold -= aiUnits.length;
+
+    // Чтобы goldPerTurn отражал чистый доход игрока
+    this.goldPerTurn -= playerUnits.length;
 
     if (this.playerGold < 0) this.playerGold = 0;
     if (this.aiGold < 0) this.aiGold = 0;
@@ -346,7 +419,12 @@ export default class GameState {
   // ===== ПАНЕЛЬ ГОРОДА =====
   openCityPanel(city) {
     const income = this.getCityIncome(city);
-    const ownerName = city.owner === this.playerId ? "Игрок" : city.owner === this.aiId ? "ИИ" : "Нейтрал";
+    const ownerName =
+      city.owner === this.playerId
+        ? "Игрок"
+        : city.owner === this.aiId
+        ? "ИИ"
+        : "Нейтрал";
 
     console.log(`
 🏙️ ${city.name}
@@ -354,7 +432,9 @@ export default class GameState {
 Уровень: ${city.level}
 Доход: ${income} золота/ход
 Население: ${Math.floor(city.population)}
-Гарнизон: ${this.units.filter(u => u.x === city.x && u.y === city.y).length} юнитов
+Гарнизон: ${
+      this.units.filter((u) => u.x === city.x && u.y === city.y).length
+    } юнитов
     `);
   }
 
@@ -374,46 +454,49 @@ export default class GameState {
       }
     }
 
-    this.selectedUnit = this.selectedUnits.length === 1 ? this.selectedUnits[0] : null;
+    this.selectedUnit =
+      this.selectedUnits.length === 1 ? this.selectedUnits[0] : null;
     console.log(`🎯 Выделено юнитов: ${this.selectedUnits.length}`);
   }
 
   // ===== ОБНОВЛЕНИЕ =====
   update(dt) {
-    if (!this.running) return;
+  if (!this.running || this.paused) return;
 
-    this.economyTimer += dt;
-    if (this.economyTimer >= this.economyInterval) {
-      this.economyTimer = 0;
-      this.updateEconomy();
-    }
+  // ===== ПРИМЕНЯЕМ СКОРОСТЬ =====
+  dt = dt * this.speedMultiplier;
 
-    this.ai.update(dt);
-
-    for (const unit of this.units) {
-      unit.update(dt, this);
-    }
-
-    this.combat.update(dt);
-    this.clearCompletedTasks();
-
-    if (this.selectedUnit && !this.selectedUnit.isAlive()) {
-      this.selectedUnit = null;
-      console.log('💀 Выбранный юнит погиб, выделение сброшено');
-    }
+  this.economyTimer += dt;
+  if (this.economyTimer >= this.economyInterval) {
+    this.economyTimer = 0;
+    this.updateEconomy();
   }
 
+  this.ai.update(dt);
+
+  for (const unit of this.units) {
+    unit.update(dt, this);
+  }
+
+  this.combat.update(dt);
+  this.clearCompletedTasks();
+
+  if (this.selectedUnit && !this.selectedUnit.isAlive()) {
+    this.selectedUnit = null;
+    console.log('💀 Выбранный юнит погиб, выделение сброшено');
+  }
+}
   // ===== СТАТИСТИКА =====
   getStats() {
     return {
       points: (this.map.points || []).length,
       roads: (this.map.roads || []).length,
-      provinces: (this.map.provinces || []).length
+      provinces: (this.map.provinces || []).length,
     };
   }
 
   getUnitsAt(x, y, radius = 0.02) {
-    return this.units.filter(u => {
+    return this.units.filter((u) => {
       const dx = u.x - x;
       const dy = u.y - y;
       return Math.sqrt(dx * dx + dy * dy) <= radius;
@@ -421,7 +504,7 @@ export default class GameState {
   }
 
   getUnitAt(x, y, radius = 0.01) {
-    return this.units.find(u => {
+    return this.units.find((u) => {
       const dx = u.x - x;
       const dy = u.y - y;
       return Math.sqrt(dx * dx + dy * dy) <= radius && u.isAlive();
@@ -429,7 +512,7 @@ export default class GameState {
   }
 
   getCityAt(x, y, radius = 0.015) {
-    return this.cities.find(c => {
+    return this.cities.find((c) => {
       const dx = c.x - x;
       const dy = c.y - y;
       return Math.sqrt(dx * dx + dy * dy) <= radius;
@@ -437,7 +520,7 @@ export default class GameState {
   }
 
   getProvinceAt(x, y) {
-    return (this.map.provinces || []).find(prov => {
+    return (this.map.provinces || []).find((prov) => {
       if (!prov.vertices || prov.vertices.length < 3) return false;
       return pointInPolygon({ x, y }, prov.vertices);
     });
@@ -449,10 +532,15 @@ function pointInPolygon(point, vertices) {
 
   let inside = false;
   for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
-    const xi = vertices[i].x, yi = vertices[i].y;
-    const xj = vertices[j].x, yj = vertices[j].y;
-    const intersect = ((yi > point.y) !== (yj > point.y)) &&
-      (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+    const xi = vertices[i].x,
+      yi = vertices[i].y;
+    const xj = vertices[j].x,
+      yj = vertices[j].y;
+
+    const intersect =
+      yi > point.y !== yj > point.y &&
+      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+
     if (intersect) inside = !inside;
   }
   return inside;

@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <title>RTS Engine</title>
   <link rel="stylesheet" href="css/style.css" />
+
   <style>
     /* Базовые стили (если style.css не подгрузится) */
     body {
@@ -14,6 +15,9 @@
       font-family: 'Segoe UI', sans-serif;
       user-select: none;
     }
+
+  
+
     #gameCanvas {
       width: 100vw;
       height: 100vh;
@@ -21,9 +25,11 @@
       background: #000;
       cursor: grab;
     }
+
     #gameCanvas:active {
       cursor: grabbing;
     }
+
     #fileLoaderBox {
       position: absolute;
       top: 16px;
@@ -40,12 +46,14 @@
       font-size: 13px;
       min-width: 180px;
     }
+
     #fileLoaderBox label {
       color: #8899bb;
       font-size: 11px;
       text-transform: uppercase;
       letter-spacing: 0.5px;
     }
+
     #fileLoaderBox input[type="file"] {
       background: rgba(255, 255, 255, 0.05);
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -55,6 +63,7 @@
       font-size: 12px;
       cursor: pointer;
     }
+
     #fileLoaderBox input[type="file"]::file-selector-button {
       background: rgba(255, 255, 255, 0.05);
       border: none;
@@ -64,9 +73,11 @@
       cursor: pointer;
       font-size: 12px;
     }
+
     #fileLoaderBox input[type="file"]::file-selector-button:hover {
       background: rgba(255, 255, 255, 0.1);
     }
+
     #infoPanel {
       position: absolute;
       bottom: 16px;
@@ -83,6 +94,7 @@
       pointer-events: none;
       font-family: 'Consolas', monospace;
     }
+
     #goldDisplay {
       position: absolute;
       top: 16px;
@@ -100,6 +112,7 @@
       align-items: center;
       gap: 6px;
     }
+
     #aiGoldDisplay {
       position: absolute;
       top: 66px;
@@ -117,7 +130,52 @@
       align-items: center;
       gap: 4px;
     }
-    /* ===== СТИЛИ ПАНЕЛИ ГОРОДА (встроены на случай, если style.css не загрузился) ===== */
+    
+  
+
+
+    /* ===== УПРАВЛЕНИЕ СКОРОСТЬЮ ===== */
+    #speedControls {
+      position: absolute;
+      top: 16px;
+      left: 50%;
+      transform: translateX(-50%);
+      z-index: 20;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: rgba(10, 13, 20, 0.85);
+      backdrop-filter: blur(8px);
+      padding: 8px 12px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    #speedControls button {
+      width: 32px;
+      height: 32px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #e0e6f5;
+      font-size: 18px;
+      cursor: pointer;
+    }
+
+    #speedControls button:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    #speedDisplay {
+      min-width: 46px;
+      text-align: center;
+      font-family: Consolas, monospace;
+      font-size: 14px;
+      font-weight: bold;
+      color: #ffd700;
+    }
+
+    /* ===== СТИЛИ ПАНЕЛИ ГОРОДА ===== */
     .city-panel-overlay {
       position: fixed;
       top: 0;
@@ -131,10 +189,12 @@
       opacity: 0;
       transition: opacity 0.3s ease;
     }
+
     .city-panel-overlay.visible {
       display: block;
       opacity: 1;
     }
+
     .city-panel {
       position: fixed;
       bottom: 40px;
@@ -155,10 +215,12 @@
       pointer-events: auto;
       display: none;
     }
+
     .city-panel.visible {
       transform: translateX(-50%) translateY(0);
       display: block;
     }
+
     .city-panel .close-btn {
       position: absolute;
       top: 12px;
@@ -172,9 +234,11 @@
       padding: 4px 8px;
       line-height: 1;
     }
+
     .city-panel .close-btn:hover {
       color: #e0e6f5;
     }
+
     .city-panel-header {
       display: flex;
       justify-content: space-between;
@@ -182,12 +246,14 @@
       margin-bottom: 16px;
       padding-right: 32px;
     }
+
     .city-panel-header h2 {
       margin: 0;
       font-size: 20px;
       font-weight: 600;
       color: #fff;
     }
+
     .city-owner {
       font-size: 12px;
       padding: 4px 14px;
@@ -195,43 +261,52 @@
       font-weight: 500;
       white-space: nowrap;
     }
+
     .city-owner.player {
       background: rgba(50, 150, 255, 0.2);
       color: #4a9eff;
     }
+
     .city-owner.ai {
       background: rgba(255, 80, 80, 0.2);
       color: #ff6666;
     }
+
     .city-owner.neutral {
       background: rgba(200, 200, 200, 0.08);
       color: #7788aa;
     }
+
     .city-panel-body {
       display: grid;
       grid-template-columns: 1fr 1fr;
       gap: 4px 16px;
       margin-bottom: 18px;
     }
+
     .city-stat {
       display: flex;
       justify-content: space-between;
       padding: 6px 0;
       border-bottom: 1px solid rgba(255, 255, 255, 0.04);
     }
+
     .city-stat .label {
       color: #556688;
       font-size: 13px;
     }
+
     .city-stat .value {
       color: #e0e6f5;
       font-weight: 500;
       font-size: 13px;
     }
+
     .city-panel-actions {
       display: flex;
       gap: 10px;
     }
+
     .city-panel-actions .action-btn {
       flex: 1;
       padding: 10px 14px;
@@ -245,27 +320,114 @@
       transition: all 0.2s;
       text-align: center;
     }
+
     .city-panel-actions .action-btn:hover {
       background: rgba(255, 255, 255, 0.1);
       border-color: rgba(255, 255, 255, 0.15);
       transform: translateY(-1px);
     }
+
     .city-panel-actions .action-btn:active {
       transform: translateY(0);
     }
+
     .city-panel-actions .action-btn:disabled {
       opacity: 0.35;
       cursor: not-allowed;
       transform: none !important;
     }
+
+    /* ===== ТЕРМИНАЛ ===== */
+    #terminal {
+      position: fixed;
+      bottom: 16px;
+      right: 16px;
+      width: 420px;
+      max-height: 320px;
+      background: rgba(8, 10, 16, 0.95);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 12px;
+      z-index: 2000;
+      display: flex;
+      flex-direction: column;
+      font-family: 'Consolas', 'Courier New', monospace;
+      font-size: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(0, 0, 0, 0.6);
+    }
+
+    #terminal.collapsed {
+      max-height: 36px;
+    }
+
+    #terminal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      background: rgba(255, 255, 255, 0.04);
+      cursor: pointer;
+      user-select: none;
+    }
+
+    #terminal-toggle {
+      background: none;
+      border: none;
+      color: #8899bb;
+      font-size: 16px;
+      cursor: pointer;
+      padding: 0 4px;
+    }
+
+    #terminal-output {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 12px;
+      max-height: 220px;
+    }
+
+    .terminal-line {
+      margin-bottom: 3px;
+      word-break: break-word;
+    }
+
+    .terminal-line.info { color: #c0c8d8; }
+    .terminal-line.success { color: #66cc88; }
+    .terminal-line.error { color: #ff6666; }
+    .terminal-line.system { color: #8899bb; }
+    .terminal-line.command { color: #4a9eff; }
+
+    #terminal-input-line {
+      display: flex;
+      align-items: center;
+      padding: 8px 12px;
+      border-top: 1px solid rgba(255, 255, 255, 0.06);
+      gap: 6px;
+    }
+
+    #terminal-prompt {
+      color: #4a9eff;
+    }
+
+    #terminal-input {
+      flex: 1;
+      background: transparent;
+      border: none;
+      outline: none;
+      color: #e0e6f5;
+      font-family: inherit;
+      font-size: 12px;
+    }
   </style>
 </head>
 
 <body>
+
   <!-- ===== ЗАГРУЗЧИК ===== -->
   <div id="fileLoaderBox">
     <label>📂 Загрузить world.json</label>
     <input id="fileLoader" type="file" accept=".json" />
+
     <label style="margin-top:4px;">🖼️ Загрузить карту (PNG)</label>
     <input id="imageLoader" type="file" accept="image/png" />
   </div>
@@ -280,6 +442,7 @@
     <span id="goldAmount">0</span>
     <span id="goldChange">+0</span>
   </div>
+
   <div id="aiGoldDisplay">
     <span>🤖</span>
     <span>🪙</span>
@@ -287,8 +450,31 @@
     <span id="aiGoldChange">+0</span>
   </div>
 
+  <!-- ===== КНОПКИ УПРАВЛЕНИЯ СКОРОСТЬЮ ===== -->
+  <div id="speedControls">
+    <button id="btnSlower" title="Замедлить">−</button>
+    <span id="speedDisplay">1.0x</span>
+    <button id="btnFaster" title="Ускорить">+</button>
+    <button id="btnPause" title="Пауза">⏸</button>
+  </div>
+
   <!-- ===== CANVAS ===== -->
   <canvas id="gameCanvas"></canvas>
+
+  <!-- ===== ВСТРОЕННЫЙ ТЕРМИНАЛ ===== -->
+  <div id="terminal">
+    <div id="terminal-header">
+      <span>⬛ Терминал</span>
+      <button id="terminal-toggle">−</button>
+    </div>
+    <div id="terminal-output">
+      <div class="terminal-line system">📡 Терминал запущен. Введите /help для списка команд.</div>
+    </div>
+    <div id="terminal-input-line">
+      <span id="terminal-prompt">></span>
+      <input id="terminal-input" type="text" placeholder="Введите команду..." />
+    </div>
+  </div>
 
   <!-- ===== СКРИПТЫ ===== -->
   <script type="module">
@@ -299,143 +485,401 @@
     import Camera from "./js/core/Camera.js";
     import SelectionManager from "./js/core/SelectionManager.js";
 
+    /* =========================================================
+       DOM
+       ========================================================= */
     const canvas = document.getElementById("gameCanvas");
     const infoPanel = document.getElementById("infoPanel");
+
     const goldAmount = document.getElementById("goldAmount");
     const goldChange = document.getElementById("goldChange");
+
     const aiGoldAmount = document.getElementById("aiGoldAmount");
     const aiGoldChange = document.getElementById("aiGoldChange");
 
+    const btnSlower = document.getElementById("btnSlower");
+    const btnFaster = document.getElementById("btnFaster");
+    const btnPause = document.getElementById("btnPause");
+    const speedDisplay = document.getElementById("speedDisplay");
+
+    const fileLoader = document.getElementById("fileLoader");
+    const imageLoader = document.getElementById("imageLoader");
+
+    /* =========================================================
+       CANVAS RESIZE
+       ========================================================= */
     function resize() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
     }
+
     resize();
     window.addEventListener("resize", resize);
 
+    /* =========================================================
+       GAME STATE
+       ========================================================= */
     let game = null;
     let renderer = null;
     let input = null;
     let camera = null;
     let cityPanel = null;
+    let selectionManager = null;
 
-    const fileLoader = document.getElementById("fileLoader");
-    const imageLoader = document.getElementById("imageLoader");
+    let animationFrameId = null;
+    let pendingBackgroundImage = null;
 
+    /* =========================================================
+       WORLD.JSON
+       ========================================================= */
     fileLoader.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
       try {
+        if (animationFrameId !== null) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = null;
+        }
+
         const text = await file.text();
         const world = JSON.parse(text);
 
         game = new GameState(world);
+        updateSpeedControls();
+
         camera = new Camera(canvas);
         camera.centerOnWorld();
+
         renderer = new Renderer(canvas, game, camera);
+
+        if (pendingBackgroundImage) {
+          renderer.setBackgroundImage(pendingBackgroundImage);
+        }
+
         cityPanel = new CityPanel(game);
+
         input = new InputHandler(canvas, game, renderer, camera, cityPanel);
         renderer.setInputHandler(input);
 
-        // ===== СОЗДАЁМ SELECTION MANAGER ПОСЛЕ ВСЕХ =====
-        const selectionManager = new SelectionManager(canvas, game, camera, renderer);
+        selectionManager = new SelectionManager(canvas, game, camera, renderer);
 
         infoPanel.textContent = "✅ Карта загружена!";
         loop();
+
       } catch (err) {
         console.error("❌ Ошибка загрузки:", err);
         infoPanel.textContent = "❌ Ошибка: " + err.message;
       }
     });
 
+    /* =========================================================
+       IMAGE / PNG
+       ========================================================= */
     imageLoader.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
 
       const reader = new FileReader();
+
       reader.onload = () => {
         const img = new Image();
         img.src = reader.result;
+
         img.onload = () => {
+          pendingBackgroundImage = img;
           if (renderer) {
             renderer.setBackgroundImage(img);
           }
         };
       };
+
       reader.readAsDataURL(file);
     });
 
+    /* =========================================================
+       INFO PANEL
+       ========================================================= */
     function updateInfoPanel() {
       if (!game) {
         infoPanel.textContent = "📡 Ожидание загрузки карты...";
         return;
       }
 
-      // Золото игрока
+      /* =========================
+         ЗОЛОТО ИГРОКА (чистый доход)
+         ========================= */
       if (goldAmount) {
         goldAmount.textContent = Math.floor(game.playerGold);
       }
+
       if (goldChange) {
-        const change = game.goldPerTurn || 0;
-        const sign = change >= 0 ? "+" : "";
-        goldChange.textContent = `${sign}${change}`;
-        goldChange.style.color = change >= 0 ? "#66cc88" : "#ff6666";
+        const net = game.getNetIncome(game.playerId);
+        const sign = net.net >= 0 ? '+' : '';
+        goldChange.textContent = `${sign}${net.net}`;
+        goldChange.style.color = net.net >= 0 ? '#66cc88' : '#ff6666';
       }
 
-      // Золото ИИ
+      /* =========================
+         ЗОЛОТО ИИ (чистый доход)
+         ========================= */
       if (aiGoldAmount) {
         aiGoldAmount.textContent = Math.floor(game.aiGold);
       }
+
       if (aiGoldChange) {
-        let aiIncome = 0;
-        for (const city of game.cities) {
-          if (city.owner === game.aiId) {
-            aiIncome += game.getCityIncome(city);
-          }
-        }
-        const sign = aiIncome >= 0 ? "+" : "";
-        aiGoldChange.textContent = `${sign}${aiIncome}`;
-        aiGoldChange.style.color = aiIncome >= 0 ? "#66cc88" : "#ff6666";
+        const net = game.getNetIncome(game.aiId);
+        const sign = net.net >= 0 ? '+' : '';
+        aiGoldChange.textContent = `${sign}${net.net}`;
+        aiGoldChange.style.color = net.net >= 0 ? '#66cc88' : '#ff6666';
       }
 
+      /* =========================
+         SELECTED CITY
+         ========================= */
       if (game.selectedCity) {
         const c = game.selectedCity;
         infoPanel.textContent = `🏙️ ${c.name || "Город"} (уровень ${c.level || 1})`;
         return;
       }
+
+      /* =========================
+         SELECTED POINT
+         ========================= */
       if (game.selectedPoint) {
         const p = game.selectedPoint;
         const type = p.cityType ? `, ${p.cityType}` : "";
         infoPanel.textContent = `📍 Точка #${p.id} (${p.x.toFixed(3)}, ${p.y.toFixed(3)})${type}`;
         return;
       }
+
+      /* =========================
+         SELECTED PROVINCE
+         ========================= */
       if (game.selectedProvince) {
         const prov = game.selectedProvince;
         infoPanel.textContent = `🗺️ Провинция: ${prov.name || prov.id}`;
         return;
       }
+
+      /* =========================
+         GENERAL STATS
+         ========================= */
       const stats = game.getStats();
       infoPanel.textContent =
         `📍 ${stats.points} точек | 🛤️ ${stats.roads} дорог | 🏛️ ${stats.provinces} провинций | 🏙️ ${game.cities.length} городов`;
     }
 
+
+    /* =========================================================
+       УПРАВЛЕНИЕ СКОРОСТЬЮ
+       ========================================================= */
+    function updateSpeedControls() {
+      if (!game) return;
+
+      const speed = game.speedMultiplier ?? 1;
+      speedDisplay.textContent = `${speed.toFixed(1)}x`;
+
+      if (game.paused) {
+        btnPause.textContent = "▶";
+        btnPause.title = "Продолжить";
+      } else {
+        btnPause.textContent = "⏸";
+        btnPause.title = "Пауза";
+      }
+    }
+
+    btnSlower.addEventListener("click", () => {
+      if (!game || typeof game.setSpeed !== "function") return;
+
+      const currentSpeed = game.speedMultiplier ?? 1;
+      const newSpeed = Math.max(0.1, currentSpeed - 0.1);
+
+      game.setSpeed(Number(newSpeed.toFixed(1)));
+      updateSpeedControls();
+    });
+
+    btnFaster.addEventListener("click", () => {
+      if (!game || typeof game.setSpeed !== "function") return;
+
+      const currentSpeed = game.speedMultiplier ?? 1;
+      const newSpeed = Math.min(5.0, currentSpeed + 0.1);
+
+      game.setSpeed(Number(newSpeed.toFixed(1)));
+      updateSpeedControls();
+    });
+
+    btnPause.addEventListener("click", () => {
+      if (!game || typeof game.togglePause !== "function") return;
+
+      game.togglePause();
+      updateSpeedControls();
+    });
+
+    /* =========================================================
+       GAME LOOP
+       ========================================================= */
     function loop() {
-      if (!game || !renderer) return;
+      if (!game || !renderer) {
+        animationFrameId = null;
+        return;
+      }
 
       const dt = 0.016;
+
       game.update(dt);
       renderer.render();
       updateInfoPanel();
 
-      requestAnimationFrame(loop);
+      animationFrameId = requestAnimationFrame(loop);
     }
 
-    window.addEventListener("resize", () => {
-      if (camera) {
-        camera.centerOnWorld();
+    /* =========================================================
+       ТЕРМИНАЛ
+       ========================================================= */
+    const terminalOutput = document.getElementById('terminal-output');
+    const terminalInput = document.getElementById('terminal-input');
+    const terminalToggle = document.getElementById('terminal-toggle');
+    const terminal = document.getElementById('terminal');
+
+    function terminalLog(message, type = 'info') {
+      const line = document.createElement('div');
+      line.className = `terminal-line ${type}`;
+      line.textContent = message;
+      terminalOutput.appendChild(line);
+      terminalOutput.scrollTop = terminalOutput.scrollHeight;
+    }
+
+    const originalConsoleLog = console.log;
+    console.log = function (...args) {
+      originalConsoleLog(...args);
+      const msg = args.join(' ');
+      terminalLog(msg, 'info');
+    };
+
+    function handleTerminalCommand(input) {
+      const trimmed = input.trim();
+      if (!trimmed) return;
+
+      terminalLog(`> ${trimmed}`, 'command');
+
+      if (!game) {
+        terminalLog('❌ Игра ещё не загружена. Сначала загрузите world.json', 'error');
+        return;
+      }
+
+      const parts = trimmed.split(' ');
+      const cmd = parts[0].toLowerCase();
+      const args = parts.slice(1);
+
+      switch (cmd) {
+        case '/help':
+          terminalLog('📖 Доступные команды:', 'system');
+          terminalLog('  /speed [0.1-5.0]  — Установить скорость игры', 'system');
+          terminalLog('  /pause             — Включить/выключить паузу', 'system');
+          terminalLog('  /gold              — Показать золото игрока и ИИ', 'system');
+          terminalLog('  /units             — Показать количество юнитов', 'system');
+          terminalLog('  /cities            — Показать список городов', 'system');
+          terminalLog('  /clear             — Очистить терминал', 'system');
+          terminalLog('  /status            — Текущее состояние игры', 'system');
+          break;
+
+        case '/speed':
+          const speed = parseFloat(args[0]);
+          if (!isNaN(speed) && speed >= 0.1 && speed <= 5.0) {
+            if (typeof game.setSpeed === 'function') {
+              game.setSpeed(speed);
+              updateSpeedControls();
+              terminalLog(`⚡ Скорость установлена: ${speed.toFixed(1)}x`, 'success');
+            } else {
+              terminalLog('❌ Метод setSpeed ещё не реализован в GameState', 'error');
+            }
+          } else {
+            terminalLog('❌ Укажите число от 0.1 до 5.0 (пример: /speed 2.0)', 'error');
+          }
+          break;
+
+        case '/pause':
+          const isPaused = game.togglePause();
+          updateSpeedControls();
+          terminalLog(isPaused ? '⏸ Игра на паузе' : '▶ Игра продолжена', 'info');
+          break;
+
+        case '/gold':
+          terminalLog(`👤 Золото игрока: ${Math.floor(game.playerGold)}`, 'info');
+          terminalLog(`🤖 Золото ИИ: ${Math.floor(game.aiGold)}`, 'info');
+          break;
+
+        case '/units':
+          const playerUnits = game.units.filter(u => u.owner === game.playerId).length;
+          const aiUnits = game.units.filter(u => u.owner === game.aiId).length;
+          terminalLog(`👤 Юнитов игрока: ${playerUnits}`, 'info');
+          terminalLog(`🤖 Юнитов ИИ: ${aiUnits}`, 'info');
+          break;
+
+        case '/cities':
+          const citiesByOwner = {};
+          for (const city of game.cities) {
+            const owner = city.owner === game.playerId ? 'Игрок' :
+                          city.owner === game.aiId ? 'ИИ' : 'Нейтрал';
+            if (!citiesByOwner[owner]) citiesByOwner[owner] = [];
+            citiesByOwner[owner].push(city.name);
+          }
+          for (const [owner, names] of Object.entries(citiesByOwner)) {
+            terminalLog(`🏙️ ${owner}: ${names.join(', ')}`, 'info');
+          }
+          break;
+
+        case '/clear':
+          terminalOutput.innerHTML = '';
+          terminalLog('📡 Терминал очищен', 'system');
+          break;
+
+        case '/status':
+          const pUnits = game.units.filter(u => u.owner === game.playerId).length;
+          const aUnits = game.units.filter(u => u.owner === game.aiId).length;
+          terminalLog(`🏙️ Городов: ${game.cities.length}`, 'info');
+          terminalLog(`👤 Юнитов игрока: ${pUnits}`, 'info');
+          terminalLog(`🤖 Юнитов ИИ: ${aUnits}`, 'info');
+          terminalLog(`👤 Золото игрока: ${Math.floor(game.playerGold)}`, 'info');
+          terminalLog(`🤖 Золото ИИ: ${Math.floor(game.aiGold)}`, 'info');
+          if (game.speedMultiplier !== undefined) {
+            terminalLog(`⚡ Текущая скорость: ${game.speedMultiplier.toFixed(1)}x`, 'info');
+          }
+          terminalLog(game.paused ? '⏸ Игра на паузе' : '▶ Игра запущена', 'info');
+          break;
+
+        default:
+          terminalLog(`❌ Неизвестная команда: ${cmd}. Введите /help для списка.`, 'error');
+          break;
+      }
+    }
+
+    terminalInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const cmd = terminalInput.value;
+        handleTerminalCommand(cmd);
+        terminalInput.value = '';
       }
     });
+
+    terminalToggle.addEventListener('click', () => {
+      terminal.classList.toggle('collapsed');
+      terminalToggle.textContent = terminal.classList.contains('collapsed') ? '+' : '−';
+    });
+
+    document.getElementById('terminal-header').addEventListener('click', (e) => {
+      if (e.target.tagName !== 'BUTTON') {
+        terminalToggle.click();
+      }
+    });
+
+    terminal.addEventListener('click', () => {
+      terminalInput.focus();
+    });
+
+    terminalLog('✅ Терминал готов. Введите /help для списка команд.', 'system');
   </script>
+
 </body>
 </html>

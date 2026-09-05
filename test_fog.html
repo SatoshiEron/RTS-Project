@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8" />
+  <title>Тест зоны контроля (туман)</title>
+  <style>
+    body {
+      margin: 0;
+      background: #0a0d14;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+    canvas {
+      border: 2px solid #334466;
+      border-radius: 12px;
+      background: #0a0d14;
+      cursor: crosshair;
+    }
+    #info {
+      position: fixed;
+      bottom: 20px;
+      left: 50%;
+      transform: translateX(-50%);
+      color: #8899bb;
+      font-family: 'Consolas', monospace;
+      font-size: 14px;
+      background: rgba(10, 13, 20, 0.85);
+      padding: 12px 24px;
+      border-radius: 10px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="canvas" width="800" height="600"></canvas>
+  <div id="info">🟢 Зелёная зона — контроль территории</div>
+  <script>
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+
+    // ===== ДАННЫЕ =====
+    const cities = [
+      { x: 200, y: 200, name: 'Город 1', owner: 'player' },
+      { x: 600, y: 150, name: 'Город 2', owner: 'ai' },
+      { x: 400, y: 400, name: 'Город 3', owner: 'player' },
+    ];
+
+    const units = [
+      { x: 280, y: 250, owner: 'player' },
+      { x: 320, y: 280, owner: 'player' },
+      { x: 550, y: 220, owner: 'ai' },
+      { x: 450, y: 350, owner: 'player' },
+      { x: 500, y: 300, owner: 'ai' },
+    ];
+
+    // ===== ПАРАМЕТРЫ =====
+    const ZONE_RADIUS_CITY = 150;
+    const ZONE_RADIUS_UNIT = 100;
+
+    // ===== ФУНКЦИИ =====
+    function drawZone(cx, cy, radius, color, intensity) {
+      // Градиент от центра к краям
+      const gradient = ctx.createRadialGradient(cx, cy, 0, cx, cy, radius);
+      gradient.addColorStop(0, `rgba(${color}, ${intensity})`);
+      gradient.addColorStop(0.6, `rgba(${color}, ${intensity * 0.6})`);
+      gradient.addColorStop(1, `rgba(${color}, 0)`);
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    function drawFog() {
+      // ===== ЗОНЫ ОТ ГОРОДОВ =====
+      for (const city of cities) {
+        const color = city.owner === 'player' ? '50, 255, 120' : '255, 80, 80';
+        const intensity = city.owner === 'player' ? 0.25 : 0.15;
+        drawZone(city.x, city.y, ZONE_RADIUS_CITY, color, intensity);
+      }
+
+      // ===== ЗОНЫ ОТ ЮНИТОВ =====
+      for (const unit of units) {
+        const color = unit.owner === 'player' ? '50, 255, 120' : '255, 80, 80';
+        const intensity = unit.owner === 'player' ? 0.15 : 0.10;
+        drawZone(unit.x, unit.y, ZONE_RADIUS_UNIT, color, intensity);
+      }
+    }
+
+    function drawObjects() {
+      // ===== ГОРОДА =====
+      for (const city of cities) {
+        const color = city.owner === 'player' ? '#00ff88' : '#ff6644';
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 20;
+        ctx.beginPath();
+        ctx.arc(city.x, city.y, 12, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '12px Segoe UI';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        ctx.fillText(city.name, city.x, city.y - 18);
+      }
+
+      // ===== ЮНИТЫ =====
+      for (const unit of units) {
+        const color = unit.owner === 'player' ? '#00ff88' : '#ff6644';
+        ctx.fillStyle = color;
+        ctx.shadowColor = color;
+        ctx.shadowBlur = 10;
+        ctx.beginPath();
+        ctx.arc(unit.x, unit.y, 6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function drawGrid() {
+      ctx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+      ctx.lineWidth = 1;
+      for (let x = 0; x < canvas.width; x += 40) {
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x, canvas.height);
+        ctx.stroke();
+      }
+      for (let y = 0; y < canvas.height; y += 40) {
+        ctx.beginPath();
+        ctx.moveTo(0, y);
+        ctx.lineTo(canvas.width, y);
+        ctx.stroke();
+      }
+    }
+
+    // ===== ГЛАВНЫЙ ЦИКЛ =====
+    function render() {
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawGrid();
+      drawFog();
+      drawObjects();
+
+      // Легенда
+      ctx.fillStyle = 'rgba(255,255,255,0.3)';
+      ctx.font = '11px Consolas';
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+      ctx.fillText('🟢 Игрок', 20, 20);
+      ctx.fillStyle = 'rgba(255,100,100,0.3)';
+      ctx.fillText('🔴 ИИ', 20, 38);
+
+      requestAnimationFrame(render);
+    }
+
+    render();
+
+    // ===== КЛИК ДЛЯ ДОБАВЛЕНИЯ ЮНИТОВ =====
+    canvas.addEventListener('click', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const owner = units.length % 2 === 0 ? 'player' : 'ai';
+      units.push({ x, y, owner });
+      console.log(`➕ Добавлен юнит ${owner} в (${x}, ${y})`);
+    });
+  </script>
+</body>
+</html>
