@@ -86,7 +86,9 @@
     }
     #objectList div { padding: 2px 6px; cursor: pointer; border-radius: 4px; }
     #objectList div:hover { background: #1a2233; }
-    #objectList div.selected { background: rgba(74,158,255,0.25); color: #e0e6f5; }
+    #objectList div.selected { background: rgba(255,255,0,0.18); color: #ffff66; border-left: 2px solid #ffff00; }
+    /* ИЗМЕНЕНО: подсказка множественного выделения */
+    #objectList .selection-summary { color:#ffff66; padding:4px 6px; font-size:11px; border-bottom:1px solid var(--border); margin-bottom:3px; }
     #dropHint {
       position: absolute;
       inset: 0;
@@ -163,6 +165,7 @@
     <button id="deleteLineBtn" style="color:#ff6666;">🗑️ Удалить линию</button>
     <div class="hint">
       Колёсико — зум. ПКМ — панорамирование. Delete — удалить.<br>
+      <strong>Выделение:</strong> Ctrl/Shift+клик — добавить, рамка — множественный выбор, Esc — сбросить.<br>
       <strong>Горячие клавиши:</strong> 1-Выделение, 2-Дорога, 3-Ж/Д, 4-Река, 5-Суша, 6-Обводка, 7-Провинции, 8-Соединить
     </div>
   </div>
@@ -207,9 +210,8 @@ let nextPointId = 1;
 let nextRoadId = 1;
 let nextProvinceId = 1;
 
-let selectedPoint = null;
-let selectedRoad = null;
-let selectedProvince = null;
+// ИЗМЕНЕНО: единое множественное выделение
+let selectedObjects = [];
 
 let zoom = 1;
 let offsetX = 0;
@@ -241,6 +243,91 @@ const SNAP_DISTANCE = 0.008;
 let orphanPoints = [];
 let lastMouseX = 0;
 let lastMouseY = 0;
+
+// ============================================================
+//  МНОЖЕСТВЕННОЕ ВЫДЕЛЕНИЕ
+// ============================================================
+// ИЗМЕНЕНО: единый формат selectedObjects
+function isObjectSelected(type, id) {
+  return selectedObjects.some(obj => obj.type === type && obj.id === id);
+}
+
+function selectObject(type, id, additive = false) {
+  // ИЗМЕНЕНО: Ctrl/Shift добавляют или снимают объект из выделения
+  const exists = isObjectSelected(type, id);
+  if (!additive) {
+    selectedObjects = [{ type, id }];
+  } else if (exists) {
+    selectedObjects = selectedObjects.filter(obj => !(obj.type === type && obj.id === id));
+  } else {
+    selectedObjects.push({ type, id });
+  }
+}
+
+function clearSelection() {
+  selectedObjects = [];
+  updateObjectList();
+  redraw();
+}
+
+function getSelectedPointIds() {
+  const ids = new Set();
+  for (const obj of selectedObjects) {
+    if (obj.type === 'point') ids.add(obj.id);
+    if (obj.type === 'road') {
+      const road = roads.find(r => r.id === obj.id);
+      if (road) road.pointIds.forEach(id => ids.add(id));
+    }
+    if (obj.type === 'province') {
+      const prov = provinces.find(p => p.id === obj.id);
+      if (prov && prov.vertexIds) prov.vertexIds.forEach(id => ids.add(id));
+    }
+  }
+  return ids;
+}
+
+function getRoadAt(wx, wy) {
+  // ИЗМЕНЕНО: выбор линии по расстоянию до её сегментов
+  let best = null;
+  let bestDist = 0.015;
+  for (const road of roads) {
+    const pts = road.pointIds.map(id => points.find(p => p.id === id)).filter(Boolean);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 > 0 ? ((wx - a.x) * dx + (wy - a.y) * dy) / len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const px = a.x + t * dx, py = a.y + t * dy;
+      const d = Math.hypot(wx - px, wy - py);
+      if (d < bestDist) { bestDist = d; best = road; }
+    }
+  }
+  return best;
+}
+
+function getProvinceAt(wx, wy) {
+  // ИЗМЕНЕНО: выбор провинции через point-in-polygon
+  for (const prov of provinces) {
+    const vertices = (prov.vertexIds || []).map(id => points.find(p => p.id === id)).filter(Boolean);
+    if (vertices.length >= 3 && pointInPolygon({ x: wx, y: wy }, vertices)) return prov;
+  }
+  return null;
+}
+
+function getProvinceCenter(prov) {
+  const vertices = (prov.vertexIds || []).map(id => points.find(p => p.id === id)).filter(Boolean);
+  if (!vertices.length) return null;
+  return {
+    x: vertices.reduce((sum, p) => sum + p.x, 0) / vertices.length,
+    y: vertices.reduce((sum, p) => sum + p.y, 0) / vertices.length
+  };
+}
+
+function getSelectionCountText() {
+  if (!selectedObjects.length) return '';
+  return ` | Выбрано: ${selectedObjects.length}`;
+}
 
 // ============================================================
 //  КООРДИНАТЫ
@@ -293,9 +380,7 @@ function findOrphanPoints() {
     alert('✅ Точки-сироты не найдены! Все точки используются.');
   } else {
     alert(`🔍 Найдено ${orphanPoints.length} точек-сирот.\nОни выделены жёлтым на карте.`);
-    selectedPoint = null;
-    selectedRoad = null;
-    selectedProvince = null;
+    selectedObjects = [];
     updateObjectList();
     redraw();
   }
@@ -311,9 +396,7 @@ function deleteOrphanPoints() {
   pushUndo();
   points = points.filter(p => !orphanPoints.includes(p.id));
   orphanPoints = [];
-  selectedPoint = null;
-  selectedRoad = null;
-  selectedProvince = null;
+  selectedObjects = [];
   updateObjectList();
   redraw();
   alert(`✅ Удалено ${count} точек-сирот.`);
@@ -357,6 +440,9 @@ function pointInPolygon(point, vertices) {
 //  ДОБАВЛЕНИЕ
 // ============================================================
 function addPoint(x, y) {
+  // ИЗМЕНЕНО: координаты ограничены диапазоном [0,1]
+  x = Math.max(0, Math.min(1, x));
+  y = Math.max(0, Math.min(1, y));
   const id = nextPointId++;
   const pt = { id, x, y, isCity: false, cityType: null };
   points.push(pt);
@@ -395,9 +481,7 @@ function restoreUndo() {
   nextPointId = state.nextPointId || 1;
   nextRoadId = state.nextRoadId || 1;
   nextProvinceId = state.nextProvinceId || 1;
-  selectedPoint = null;
-  selectedRoad = null;
-  selectedProvince = null;
+  selectedObjects = [];
   currentPolyline = [];
   currentPolygon = [];
   tracePoints = [];
@@ -420,9 +504,7 @@ function setMode(newMode) {
   if (mode === "province_paint" && isPaintingProvince) finishProvincePaint();
 
   mode = newMode;
-  selectedPoint = null;
-  selectedRoad = null;
-  selectedProvince = null;
+  selectedObjects = [];
   currentPolyline = [];
   currentPolygon = [];
   tracePoints = [];
@@ -449,8 +531,21 @@ function updateStatus() {
   } else if (mode === "connect") {
     statusEl.textContent = connectPoints.length > 0 ? `🔗 Соединение: ${connectPoints.length} точек (кликните для добавления)` : "🔗 Кликайте по точкам для соединения";
     statusEl.className = connectPoints.length > 0 ? "active" : "";
+  } else if (mode === "road" || mode === "rail" || mode === "river") {
+    // ИЗМЕНЕНО: информативный статус для рисования линий
+    const labels = { road: "🛤️ Дорога", rail: "🚆 Ж/Д", river: "🌊 Река" };
+    statusEl.textContent = currentPolyline.length
+      ? `${labels[mode]}: ${currentPolyline.length} точек — Enter: завершить, Esc: отменить`
+      : `${labels[mode]}: кликните для первой точки`;
+    statusEl.className = currentPolyline.length ? "active" : "";
+  } else if (mode === "land") {
+    // ИЗМЕНЕНО: информативный статус для рисования суши
+    statusEl.textContent = currentPolygon.length
+      ? `🟩 Суша: ${currentPolygon.length} точек — Enter: завершить, Esc: отменить`
+      : "🟩 Суша: кликните для первой точки";
+    statusEl.className = currentPolygon.length ? "active" : "";
   } else {
-    statusEl.textContent = `⏸️ Режим: ${mode}`;
+    statusEl.textContent = `⏸️ Режим: ${mode}${getSelectionCountText()}`;
     statusEl.className = "";
   }
 }
@@ -486,23 +581,44 @@ function continueTrace(wx, wy) {
 function finishTrace() {
   if (!isTracing || mode !== "trace") return;
   isTracing = false;
-  if (tracePoints.length >= 3) {
-    const simplified = simplifyLine(tracePoints, 0.004);
-    if (simplified.length >= 3) {
-      const prov = addProvince(simplified, { name: `Territory_${provinces.length+1}`, owner: 0 });
-      selectedProvince = prov;
-    } else {
-      for (const id of tracePoints) points = points.filter(p => p.id !== id);
-    }
-  } else {
-    for (const id of tracePoints) points = points.filter(p => p.id !== id);
+
+  // ИЗМЕНЕНО: сохраняем исходные ID для очистки отброшенных точек
+  const originalIds = [...tracePoints];
+
+  if (tracePoints.length < 3) {
+    points = points.filter(p => !originalIds.includes(p.id));
+    tracePoints = [];
+    updateStatus();
+    updateObjectList();
+    redraw();
+    alert("Недостаточно точек для создания провинции");
+    return;
   }
+
+  const simplified = simplifyLine(tracePoints, 0.004);
+
+  if (simplified.length < 3) {
+    points = points.filter(p => !originalIds.includes(p.id));
+    tracePoints = [];
+    updateStatus();
+    updateObjectList();
+    redraw();
+    alert("Недостаточно точек для создания провинции");
+    return;
+  }
+
+  // ИЗМЕНЕНО: удаляем точки, отброшенные симплификацией
+  const kept = new Set(simplified);
+  points = points.filter(p => !originalIds.includes(p.id) || kept.has(p.id));
+
+  const prov = addProvince(simplified, { name: `Territory_${provinces.length+1}`, owner: 0 });
+  selectedObjects = [{ type: "province", id: prov.id }];
+
   tracePoints = [];
   updateStatus();
   updateObjectList();
   redraw();
 }
-
 // ============================================================
 //  РИСОВАНИЕ ПРОВИНЦИЙ КИСТОЧКОЙ (PROVINCE)
 // ============================================================
@@ -535,35 +651,68 @@ function finishProvincePaint() {
   if (!isPaintingProvince || mode !== "province_paint") return;
   isPaintingProvince = false;
 
-  if (provincePaintPoints.length >= 3) {
-    const first = points.find(p => p.id === provincePaintPoints[0]);
-    const last = points.find(p => p.id === provincePaintPoints[provincePaintPoints.length - 1]);
-    if (first && last) {
-      const dx = last.x - first.x;
-      const dy = last.y - first.y;
-      if (Math.sqrt(dx*dx + dy*dy) < 0.01) {
-        const simplified = simplifyLine(provincePaintPoints, 0.004);
-        if (simplified.length >= 3) {
-          const prov = addProvince(simplified, { name: `Province_${provinces.length+1}`, owner: 0 });
-          selectedProvince = prov;
-          updateObjectList();
-        }
-      }
-    }
+  // ИЗМЕНЕНО: сохраняем исходные ID для очистки отброшенных точек
+  const originalIds = [...provincePaintPoints];
+
+  if (provincePaintPoints.length < 3) {
+    points = points.filter(p => !originalIds.includes(p.id));
+    provincePaintPoints = [];
+    updateStatus();
+    updateObjectList();
+    redraw();
+    alert("Недостаточно точек для создания провинции");
+    return;
   }
 
-  if (provincePaintPoints.length > 0) {
-    for (const id of provincePaintPoints) {
-      points = points.filter(p => p.id !== id);
-    }
+  const first = points.find(p => p.id === provincePaintPoints[0]);
+  const last = points.find(p => p.id === provincePaintPoints[provincePaintPoints.length - 1]);
+
+  if (!first || !last) {
+    points = points.filter(p => !originalIds.includes(p.id));
+    provincePaintPoints = [];
+    updateStatus();
+    updateObjectList();
+    redraw();
+    alert("Контур не замкнут");
+    return;
   }
+
+  const dx = last.x - first.x;
+  const dy = last.y - first.y;
+  if (Math.sqrt(dx*dx + dy*dy) >= 0.01) {
+    points = points.filter(p => !originalIds.includes(p.id));
+    provincePaintPoints = [];
+    updateStatus();
+    updateObjectList();
+    redraw();
+    alert("Контур не замкнут");
+    return;
+  }
+
+  const simplified = simplifyLine(provincePaintPoints, 0.004);
+
+  if (simplified.length < 3) {
+    points = points.filter(p => !originalIds.includes(p.id));
+    provincePaintPoints = [];
+    updateStatus();
+    updateObjectList();
+    redraw();
+    alert("Недостаточно точек для создания провинции");
+    return;
+  }
+
+  // ИЗМЕНЕНО: удаляем точки, отброшенные симплификацией
+  const kept = new Set(simplified);
+  points = points.filter(p => !originalIds.includes(p.id) || kept.has(p.id));
+
+  const prov = addProvince(simplified, { name: `Province_${provinces.length+1}`, owner: 0 });
+  selectedObjects = [{ type: "province", id: prov.id }];
 
   provincePaintPoints = [];
   updateStatus();
   updateObjectList();
   redraw();
 }
-
 // ============================================================
 //  СОЕДИНЕНИЕ (CONNECT)
 // ============================================================
@@ -579,7 +728,7 @@ function startConnect(wx, wy) {
     if (connectPoints.length >= 2) {
       pushUndo();
       const road = addRoad([...connectPoints], "road");
-      selectedRoad = road;
+      selectedObjects = [{ type: "road", id: road.id }];
       connectPoints = [];
       updateObjectList();
       updateStatus();
@@ -591,47 +740,32 @@ function startConnect(wx, wy) {
 // ============================================================
 //  УДАЛЕНИЕ
 // ============================================================
-function deleteSelectedPoint() {
-  if (!selectedPoint) return;
-  pushUndo();
-  const id = selectedPoint.id;
-  for (const road of roads) road.pointIds = road.pointIds.filter(pid => pid !== id);
-  for (const prov of provinces) prov.vertexIds = prov.vertexIds.filter(pid => pid !== id);
-  points = points.filter(p => p.id !== id);
-  roads = roads.filter(r => r.pointIds.length >= 2);
-  provinces = provinces.filter(p => p.vertexIds.length >= 3);
-  selectedPoint = null;
-  redraw();
-  updateObjectList();
-}
-
-function deleteSelectedRoad() {
-  if (!selectedRoad) return;
-  pushUndo();
-  roads = roads.filter(r => r.id !== selectedRoad.id);
-  selectedRoad = null;
-  redraw();
-  updateObjectList();
-}
-
-function deleteSelectedProvince() {
-  if (!selectedProvince) return;
-  pushUndo();
-  const id = selectedProvince.id;
-  provinces = provinces.filter(p => p.id !== id);
-  selectedProvince = null;
-  updateObjectList();
-  redraw();
-}
-
 function deleteSelected() {
-  if (selectedPoint) {
-    deleteSelectedPoint();
-  } else if (selectedRoad) {
-    deleteSelectedRoad();
-  } else if (selectedProvince) {
-    deleteSelectedProvince();
+  // ИЗМЕНЕНО: одно подтверждение и удаление всего множественного выделения
+  if (!selectedObjects.length) return;
+  if (!confirm(`Удалить ${selectedObjects.length} выбранных объектов?`)) return;
+  pushUndo();
+
+  const pointIds = new Set(selectedObjects.filter(o => o.type === 'point').map(o => o.id));
+  const roadIds = new Set(selectedObjects.filter(o => o.type === 'road').map(o => o.id));
+  const provinceIds = new Set(selectedObjects.filter(o => o.type === 'province').map(o => o.id));
+
+  roads = roads.filter(r => !roadIds.has(r.id));
+  provinces = provinces.filter(p => !provinceIds.has(p.id));
+
+  if (pointIds.size) {
+    for (const road of roads) road.pointIds = road.pointIds.filter(id => !pointIds.has(id));
+    for (const prov of provinces) prov.vertexIds = prov.vertexIds.filter(id => !pointIds.has(id));
+    points = points.filter(p => !pointIds.has(p.id));
+    roads = roads.filter(r => r.pointIds.length >= 2);
+    provinces = provinces.filter(p => p.vertexIds.length >= 3);
   }
+
+  selectedObjects = [];
+  orphanPoints = [];
+  draggedPointId = null;
+  updateObjectList();
+  redraw();
 }
 
 function clearMap() {
@@ -640,9 +774,7 @@ function clearMap() {
   points = [];
   roads = [];
   provinces = [];
-  selectedPoint = null;
-  selectedRoad = null;
-  selectedProvince = null;
+  selectedObjects = [];
   currentPolyline = [];
   currentPolygon = [];
   tracePoints = [];
@@ -657,11 +789,22 @@ function clearMap() {
 }
 
 function setCityType(type) {
-  if (!selectedPoint) return;
+  // ИЗМЕНЕНО: назначение типа всем выделенным точкам
+  const pointIds = selectedObjects.filter(obj => obj.type === 'point').map(obj => obj.id);
+  if (!pointIds.length) {
+    alert("Сначала выберите точку на карте");
+    return;
+  }
   pushUndo();
-  selectedPoint.isCity = true;
-  selectedPoint.cityType = type;
+  for (const id of pointIds) {
+    const point = points.find(p => p.id === id);
+    if (point) {
+      point.isCity = true;
+      point.cityType = type;
+    }
+  }
   redraw();
+  updateObjectList();
 }
 
 // ============================================================
@@ -717,6 +860,8 @@ function simplifyLine(pointIds, tolerance = 0.004) {
 // ============================================================
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // ИЗМЕНЕНО: rect вычисляется один раз до цикла по провинциям
+  const rect = canvas.getBoundingClientRect();
 
   if (bgImageLoaded && bgImage) {
     ctx.save();
@@ -730,7 +875,6 @@ function redraw() {
   for (const prov of provinces) {
     if (prov.vertexIds.length < 3) continue;
 
-    const rect = canvas.getBoundingClientRect();
     const mouseX = (lastMouseX - rect.left);
     const mouseY = (lastMouseY - rect.top);
     const { x: wx, y: wy } = screenToWorld(mouseX, mouseY);
@@ -739,7 +883,8 @@ function redraw() {
     if (vertices.length < 3) continue;
 
     const isHovered = pointInPolygon({ x: wx, y: wy }, vertices);
-    const isSelected = selectedProvince && selectedProvince.id === prov.id;
+    // ИЗМЕНЕНО: множественное выделение провинций
+    const isSelected = isObjectSelected('province', prov.id);
 
     const name = prov.properties?.name || '';
 
@@ -751,8 +896,9 @@ function redraw() {
     let shadowBlur = 10;
 
     if (isSelected) {
-      fillColor = "rgba(255,200,100,0.35)";
-      strokeColor = "#ffdd44";
+      // ИЗМЕНЕНО: жёлтая подсветка выбранной провинции
+      fillColor = "rgba(255,255,0,0.30)";
+      strokeColor = "#ffff00";
       lineWidth = 4;
       shadowBlur = 25;
     } else if (isHovered) {
@@ -810,8 +956,10 @@ function redraw() {
     if (road.pointIds.length < 2) continue;
     ctx.save();
     const colors = { road: "#ffffff", rail: "#ffcc00", river: "#3399ff" };
-    ctx.strokeStyle = colors[road.type] || "#ffffff";
-    ctx.lineWidth = road.type === "river" ? 3 : 2;
+    // ИЗМЕНЕНО: жёлтая подсветка выбранных дорог
+    const roadSelected = isObjectSelected('road', road.id);
+    ctx.strokeStyle = roadSelected ? "#ffff00" : (colors[road.type] || "#ffffff");
+    ctx.lineWidth = roadSelected ? 5 : (road.type === "river" ? 3 : 2);
     if (road.type === "river") ctx.setLineDash([6, 4]);
     ctx.shadowColor = "rgba(0,0,0,0.8)";
     ctx.shadowBlur = 6;
@@ -858,6 +1006,18 @@ function redraw() {
       ctx.beginPath();
       ctx.arc(s.x, s.y, isTracePoint || isPaintPoint || isConnectPoint ? 5 : 3.5, 0, Math.PI*2);
       ctx.fill();
+    }
+
+    // ИЗМЕНЕНО: выбранные точки подсвечиваются жёлтым кругом
+    if (isObjectSelected('point', p.id)) {
+      ctx.strokeStyle = "#ffff00";
+      ctx.lineWidth = 2.5;
+      ctx.shadowColor = "#ffff00";
+      ctx.shadowBlur = 12;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.shadowBlur = 0;
     }
 
     if (isOrphan) {
@@ -934,21 +1094,99 @@ function redraw() {
     ctx.restore();
   }
 
-  if (selectedPoint) {
-    const s = worldToScreen(selectedPoint.x, selectedPoint.y);
-    ctx.save();
-    ctx.strokeStyle = "#ffff00";
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(s.x, s.y, 7, 0, Math.PI*2);
-    ctx.stroke();
-    ctx.restore();
-  }
+  // ИЗМЕНЕНО: рамка выделения рисуется поверх всех объектов
+  drawSelectionBox();
 }
 
 // ============================================================
 //  МЫШЬ
 // ============================================================
+// ============================================================
+//  МЫШЬ — ВЫДЕЛЕНИЕ И ГРУППОВОЕ ПЕРЕМЕЩЕНИЕ
+// ============================================================
+// ИЗМЕНЕНО: состояние рамки выделения и группового drag
+let isSelectingBox = false;
+let selectionBoxStartX = 0, selectionBoxStartY = 0;
+let selectionBoxCurrentX = 0, selectionBoxCurrentY = 0;
+let groupDragStartX = 0, groupDragStartY = 0;
+let groupDragOriginalPositions = new Map();
+let dragUndoPushed = false;
+
+function normalizeSelectionBox() {
+  return {
+    left: Math.min(selectionBoxStartX, selectionBoxCurrentX),
+    right: Math.max(selectionBoxStartX, selectionBoxCurrentX),
+    top: Math.min(selectionBoxStartY, selectionBoxCurrentY),
+    bottom: Math.max(selectionBoxStartY, selectionBoxCurrentY)
+  };
+}
+
+function pointInSelectionBox(p, box) {
+  const s = worldToScreen(p.x, p.y);
+  return s.x >= box.left && s.x <= box.right && s.y >= box.top && s.y <= box.bottom;
+}
+
+function selectByBox() {
+  // ИЗМЕНЕНО: рамка выбирает точки, дороги и провинции по правилам ТЗ
+  const box = normalizeSelectionBox();
+  const width = box.right - box.left;
+  const height = box.bottom - box.top;
+  if (width < 4 && height < 4) return;
+
+  selectedObjects = [];
+
+  for (const p of points) {
+    if (pointInSelectionBox(p, box)) {
+      selectedObjects.push({ type: 'point', id: p.id });
+    }
+  }
+
+  for (const road of roads) {
+    const hit = road.pointIds.some(id => {
+      const p = points.find(pt => pt.id === id);
+      return p && pointInSelectionBox(p, box);
+    });
+    if (hit) selectedObjects.push({ type: 'road', id: road.id });
+  }
+
+  for (const prov of provinces) {
+    const center = getProvinceCenter(prov);
+    if (center && pointInSelectionBox(center, box)) {
+      selectedObjects.push({ type: 'province', id: prov.id });
+    }
+  }
+
+  updateObjectList();
+  redraw();
+}
+
+function drawSelectionBox() {
+  if (!isSelectingBox) return;
+  const box = normalizeSelectionBox();
+  ctx.save();
+  ctx.fillStyle = 'rgba(255,255,0,0.08)';
+  ctx.strokeStyle = '#ffff00';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([6, 4]);
+  ctx.fillRect(box.left, box.top, box.right - box.left, box.bottom - box.top);
+  ctx.strokeRect(box.left, box.top, box.right - box.left, box.bottom - box.top);
+  ctx.restore();
+}
+
+function getHitObject(wx, wy) {
+  // ИЗМЕНЕНО: приоритет точка → провинция → линия
+  const nearest = findNearestPoint(wx, wy);
+  if (nearest) return { type: 'point', id: nearest.id };
+
+  const province = getProvinceAt(wx, wy);
+  if (province) return { type: 'province', id: province.id };
+
+  const road = getRoadAt(wx, wy);
+  if (road) return { type: 'road', id: road.id };
+
+  return null;
+}
+
 canvas.addEventListener("mousedown", (e) => {
   if (e.button === 2) {
     e.preventDefault();
@@ -974,6 +1212,7 @@ canvas.addEventListener("mousedown", (e) => {
     else {
       const pt = addPoint(wx, wy);
       tracePoints.push(pt.id);
+      updateStatus();
       redraw();
     }
     return;
@@ -985,29 +1224,75 @@ canvas.addEventListener("mousedown", (e) => {
   }
 
   if (mode === "road" || mode === "rail" || mode === "river") {
-    pushUndo();
-    const pt = addPoint(wx, wy);
-    currentPolyline.push(pt.id);
+    // ИЗМЕНЕНО: используем snap к существующей точке
+    const nearest = findNearestPoint(wx, wy);
+    if (nearest) {
+      if (currentPolyline.length === 0) pushUndo();
+      if (!currentPolyline.includes(nearest.id)) currentPolyline.push(nearest.id);
+    } else {
+      if (currentPolyline.length === 0) pushUndo();
+      const pt = addPoint(wx, wy);
+      currentPolyline.push(pt.id);
+    }
+    updateStatus();
     redraw();
     return;
   }
 
   if (mode === "land") {
-    pushUndo();
-    const pt = addPoint(wx, wy);
-    currentPolygon.push(pt.id);
+    const nearest = findNearestPoint(wx, wy);
+    if (nearest) {
+      if (currentPolygon.length === 0) pushUndo();
+      if (!currentPolygon.includes(nearest.id)) currentPolygon.push(nearest.id);
+    } else {
+      if (currentPolygon.length === 0) pushUndo();
+      const pt = addPoint(wx, wy);
+      currentPolygon.push(pt.id);
+    }
+    updateStatus();
     redraw();
     return;
   }
 
-  const nearest = findNearestPoint(wx, wy);
-  if (nearest) {
-    selectedPoint = nearest;
-    draggedPointId = nearest.id;
+  // ИЗМЕНЕНО: обычный режим select
+  const hit = getHitObject(wx, wy);
+  const additive = e.ctrlKey || e.shiftKey;
+
+  if (hit) {
+    if (hit.type === 'point') {
+      // ИЗМЕНЕНО: если точка принадлежит уже выбранному объекту, не заменяем группу
+      const selectedPointIds = getSelectedPointIds();
+      const keepSelection = !additive && selectedObjects.length > 0 && selectedPointIds.has(hit.id);
+      if (!keepSelection) selectObject(hit.type, hit.id, additive);
+      draggedPointId = hit.id;
+
+      // ИЗМЕНЕНО: сохраняем исходные позиции всех точек, затронутых выделением
+      const pointIds = getSelectedPointIds();
+      groupDragOriginalPositions = new Map();
+      for (const id of pointIds) {
+        const p = points.find(pt => pt.id === id);
+        if (p) groupDragOriginalPositions.set(id, { x: p.x, y: p.y });
+      }
+      groupDragStartX = wx;
+      groupDragStartY = wy;
+      dragUndoPushed = false;
+    } else {
+      selectObject(hit.type, hit.id, additive);
+      draggedPointId = null;
+      groupDragOriginalPositions.clear();
+    }
+    updateObjectList();
     redraw();
   } else {
-    selectedPoint = null;
-    draggedPointId = null;
+    // ИЗМЕНЕНО: пустое место → начинаем рамку выделения
+    if (!additive) selectedObjects = [];
+    isSelectingBox = true;
+    selectionBoxStartX = sx;
+    selectionBoxStartY = sy;
+    selectionBoxCurrentX = sx;
+    selectionBoxCurrentY = sy;
+    canvas.style.cursor = "crosshair";
+    updateObjectList();
     redraw();
   }
 });
@@ -1028,6 +1313,15 @@ canvas.addEventListener("mousemove", (e) => {
   const sy = e.clientY - rect.top;
   const { x: wx, y: wy } = screenToWorld(sx, sy);
 
+  if (isSelectingBox) {
+    // ИЗМЕНЕНО: обновляем рамку выделения в реальном времени
+    selectionBoxCurrentX = sx;
+    selectionBoxCurrentY = sy;
+    redraw();
+    drawSelectionBox();
+    return;
+  }
+
   if (mode === "province_paint" && isPaintingProvince) {
     continueProvincePaint(wx, wy);
     return;
@@ -1039,19 +1333,43 @@ canvas.addEventListener("mousemove", (e) => {
   }
 
   if (draggedPointId !== null) {
-    const pt = points.find(p => p.id === draggedPointId);
-    if (pt) {
-      pt.x = Math.max(0, Math.min(1, wx));
-      pt.y = Math.max(0, Math.min(1, wy));
-      redraw();
+    const pointIds = getSelectedPointIds();
+    if (pointIds.size === 0) pointIds.add(draggedPointId);
+
+    // ИЗМЕНЕНО: первый реальный drag создаёт один Undo-снимок
+    if (!dragUndoPushed) {
+      pushUndo();
+      dragUndoPushed = true;
     }
+
+    const dx = wx - groupDragStartX;
+    const dy = wy - groupDragStartY;
+
+    for (const id of pointIds) {
+      const p = points.find(pt => pt.id === id);
+      const original = groupDragOriginalPositions.get(id);
+      if (!p || !original) continue;
+      p.x = Math.max(0, Math.min(1, original.x + dx));
+      p.y = Math.max(0, Math.min(1, original.y + dy));
+    }
+    redraw();
   } else {
     redraw();
   }
 });
 
 window.addEventListener("mouseup", (e) => {
-  if (isPanning) { isPanning = false; canvas.style.cursor = "crosshair"; }
+  if (isPanning) {
+    isPanning = false;
+    canvas.style.cursor = "crosshair";
+  }
+
+  if (isSelectingBox) {
+    isSelectingBox = false;
+    selectByBox();
+    canvas.style.cursor = "crosshair";
+    return;
+  }
 
   if (mode === "province_paint" && isPaintingProvince) {
     finishProvincePaint();
@@ -1059,40 +1377,32 @@ window.addEventListener("mouseup", (e) => {
   }
 
   if (mode === "road" || mode === "rail" || mode === "river") {
-    if (currentPolyline.length >= 2) {
-      pushUndo();
-      const road = addRoad(currentPolyline, mode);
-      selectedRoad = road;
-      currentPolyline = [];
-      updateObjectList();
-      redraw();
-    }
+    // ИЗМЕНЕНО: завершение теперь делается Enter; mouseup ничего не создаёт
+    draggedPointId = null;
+    return;
   }
 
   if (mode === "land") {
-    if (currentPolygon.length >= 3) {
-      pushUndo();
-      const prov = addProvince(currentPolygon);
-      currentPolygon = [];
-      selectedProvince = prov;
-      updateObjectList();
-      redraw();
-    }
+    // ИЗМЕНЕНО: завершение делается Enter / двойным кликом
+    draggedPointId = null;
+    return;
   }
 
   draggedPointId = null;
+  groupDragOriginalPositions.clear();
+  dragUndoPushed = false;
+  updateObjectList();
 });
 
-canvas.addEventListener("dblclick", () => {
-  if (mode === "trace" && isTracing) { finishTrace(); return; }
-  if (mode === "land" && currentPolygon.length >= 3) {
-    pushUndo();
-    const prov = addProvince(currentPolygon);
-    currentPolygon = [];
-    selectedProvince = prov;
-    updateObjectList();
-    redraw();
-  }
+
+// ИЗМЕНЕНО: потеря фокуса окна не должна оставлять drag/панорамирование активными
+window.addEventListener("blur", () => {
+  isPanning = false;
+  isSelectingBox = false;
+  draggedPointId = null;
+  groupDragOriginalPositions.clear();
+  dragUndoPushed = false;
+  canvas.style.cursor = "crosshair";
 });
 
 canvas.addEventListener("contextmenu", (e) => e.preventDefault());
@@ -1101,24 +1411,72 @@ canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 //  КЛАВИАТУРА
 // ============================================================
 window.addEventListener("keydown", (e) => {
+  // ИЗМЕНЕНО: не перехватываем хоткеи в INPUT/TEXTAREA
+  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+
   if (e.key >= '1' && e.key <= '8') {
     const modes = ['select', 'road', 'rail', 'river', 'land', 'trace', 'province_paint', 'connect'];
     const idx = parseInt(e.key) - 1;
     if (modes[idx]) setMode(modes[idx]);
     e.preventDefault();
+    return;
   }
 
   if (e.key === "Escape") {
-    if (mode === "trace" && isTracing) { finishTrace(); e.preventDefault(); }
-    if (mode === "province_paint" && isPaintingProvince) { finishProvincePaint(); e.preventDefault(); }
-    if (mode === "connect" && connectPoints.length > 0) { connectPoints = []; updateStatus(); redraw(); e.preventDefault(); }
+    // ИЗМЕНЕНО: Esc сначала отменяет рисование, иначе сбрасывает выделение
+    if (mode === "trace" && isTracing) { finishTrace(); e.preventDefault(); return; }
+    if (mode === "province_paint" && isPaintingProvince) { finishProvincePaint(); e.preventDefault(); return; }
+    if ((mode === "road" || mode === "rail" || mode === "river") && currentPolyline.length) {
+      currentPolyline = [];
+      updateStatus();
+      redraw();
+      e.preventDefault();
+      return;
+    }
+    if (mode === "land" && currentPolygon.length) {
+      currentPolygon = [];
+      updateStatus();
+      redraw();
+      e.preventDefault();
+      return;
+    }
+    if (mode === "connect" && connectPoints.length > 0) { connectPoints = []; updateStatus(); redraw(); e.preventDefault(); return; }
+    clearSelection();
+    e.preventDefault();
+    return;
   }
+
+  if (e.key === "Enter" && (mode === "road" || mode === "rail" || mode === "river") && currentPolyline.length >= 2) {
+    // ИЗМЕНЕНО: завершение линии по Enter
+    pushUndo();
+    const road = addRoad(currentPolyline, mode);
+    selectedObjects = [{ type: 'road', id: road.id }];
+    currentPolyline = [];
+    updateStatus();
+    updateObjectList();
+    redraw();
+    e.preventDefault();
+    return;
+  }
+
   if (e.key === "Enter" && mode === "land" && currentPolygon.length >= 3) {
-    pushUndo(); const prov = addProvince(currentPolygon); currentPolygon = []; selectedProvince = prov; updateObjectList(); redraw(); e.preventDefault();
+    pushUndo();
+    const prov = addProvince(currentPolygon);
+    currentPolygon = [];
+    selectedObjects = [{ type: 'province', id: prov.id }];
+    updateStatus();
+    updateObjectList();
+    redraw();
+    e.preventDefault();
+    return;
   }
+
   if (e.key === "Delete") {
     deleteSelected();
+    e.preventDefault();
+    return;
   }
+
   if (e.ctrlKey && e.key.toLowerCase() === "z") { e.preventDefault(); restoreUndo(); }
 });
 
@@ -1155,7 +1513,7 @@ document.getElementById("makeMineBtn").addEventListener("click", () => setCityTy
 document.getElementById("makeFactoryBtn").addEventListener("click", () => setCityType("factory"));
 document.getElementById("makeTradeBtn").addEventListener("click", () => setCityType("trade"));
 
-document.getElementById("deletePointBtn").addEventListener("click", deleteSelectedPoint);
+document.getElementById("deletePointBtn").addEventListener("click", deleteSelected);
 document.getElementById("deleteLineBtn").addEventListener("click", deleteSelected);
 
 document.getElementById("clearBtn").addEventListener("click", clearMap);
@@ -1251,77 +1609,128 @@ document.getElementById("exportPngBtn").addEventListener("click", () => {
   expCanvas.width = canvas.width;
   expCanvas.height = canvas.height;
   const expCtx = expCanvas.getContext("2d");
-  if (bgImageLoaded && bgImage) expCtx.drawImage(bgImage, 0, 0, expCanvas.width, expCanvas.height);
-  else expCtx.fillStyle = "#0a0d14", expCtx.fillRect(0, 0, expCanvas.width, expCanvas.height);
+
+  if (bgImageLoaded && bgImage) {
+    expCtx.drawImage(bgImage, 0, 0, expCanvas.width, expCanvas.height);
+  } else {
+    expCtx.fillStyle = "#0a0d14";
+    expCtx.fillRect(0, 0, expCanvas.width, expCanvas.height);
+  }
+
+  // ИЗМЕНЕНО: экспортируем провинции с полупрозрачной заливкой
+  for (const prov of provinces) {
+    if (!prov.vertexIds || prov.vertexIds.length < 3) continue;
+    const pts = prov.vertexIds.map(id => points.find(p => p.id === id)).filter(p => p);
+    if (pts.length < 3) continue;
+
+    expCtx.save();
+    expCtx.fillStyle = "rgba(255,200,100,0.20)";
+    expCtx.strokeStyle = "#ffaa44";
+    expCtx.lineWidth = 2;
+    expCtx.beginPath();
+    for (let i = 0; i < pts.length; i++) {
+      const sx = pts[i].x * expCanvas.width;
+      const sy = pts[i].y * expCanvas.height;
+      if (i === 0) expCtx.moveTo(sx, sy);
+      else expCtx.lineTo(sx, sy);
+    }
+    expCtx.closePath();
+    expCtx.fill();
+    expCtx.stroke();
+    expCtx.restore();
+  }
+
+  // ИЗМЕНЕНО: сохраняем типовые цвета дорог/ЖД/рек
+  const roadColors = { road: "#ffffff", rail: "#ffcc00", river: "#3399ff" };
   for (const road of roads) {
     if (road.pointIds.length < 2) continue;
     const pts = road.pointIds.map(id => points.find(p => p.id === id)).filter(p => p);
     if (pts.length < 2) continue;
+
     expCtx.save();
-    expCtx.strokeStyle = "#ffffff";
-    expCtx.lineWidth = 2;
+    expCtx.strokeStyle = roadColors[road.type] || "#ffffff";
+    expCtx.lineWidth = road.type === "river" ? 3 : 2;
+    if (road.type === "river") expCtx.setLineDash([6, 4]);
     expCtx.beginPath();
     for (let i = 0; i < pts.length; i++) {
-      const sx = pts[i].x * expCanvas.width, sy = pts[i].y * expCanvas.height;
+      const sx = pts[i].x * expCanvas.width;
+      const sy = pts[i].y * expCanvas.height;
       if (i === 0) expCtx.moveTo(sx, sy);
       else expCtx.lineTo(sx, sy);
     }
     expCtx.stroke();
     expCtx.restore();
   }
+
+  // ИЗМЕНЕНО: цвета городов соответствуют redraw()
+  const cityColors = {
+    city: "#3399ff", port: "#33cc33", airfield: "#ff66cc",
+    farm: "#8B8000", mine: "#A0522D", factory: "#6A0DAD", trade: "#DAA520"
+  };
+
   for (const p of points) {
-    const sx = p.x * expCanvas.width, sy = p.y * expCanvas.height;
+    const sx = p.x * expCanvas.width;
+    const sy = p.y * expCanvas.height;
     expCtx.beginPath();
-    expCtx.fillStyle = p.isCity ? "orange" : "#cccccc";
-    expCtx.arc(sx, sy, 3, 0, Math.PI*2);
+    expCtx.fillStyle = p.isCity ? (cityColors[p.cityType] || "#3399ff") : "#cccccc";
+    expCtx.arc(sx, sy, p.isCity ? 6 : 3, 0, Math.PI * 2);
     expCtx.fill();
+    if (p.isCity) {
+      expCtx.strokeStyle = "#000";
+      expCtx.lineWidth = 1.5;
+      expCtx.stroke();
+    }
   }
+
   const link = document.createElement("a");
   link.href = expCanvas.toDataURL("image/png");
   link.download = "map_export.png";
   link.click();
 });
-
 // ============================================================
 //  СПИСОК ОБЪЕКТОВ
 // ============================================================
 function updateObjectList() {
+  // ИЗМЕНЕНО: список теперь показывает все типы объектов и их состояние выделения
   const list = document.getElementById("objectList");
   list.innerHTML = "";
+  if (selectedObjects.length) {
+    const summary = document.createElement("div");
+    summary.className = "selection-summary";
+    summary.textContent = `🟡 Выбрано объектов: ${selectedObjects.length}`;
+    list.appendChild(summary);
+  }
 
-  for (const road of roads) {
+  const addItem = (type, id, label) => {
     const div = document.createElement("div");
-    const labels = { road: "🛤️ Дорога", rail: "🚆 Ж/Д", river: "🌊 Река" };
-    div.textContent = `${labels[road.type] || road.type} #${road.id} (${road.pointIds.length} точек)`;
-    if (selectedRoad && selectedRoad.id === road.id) div.classList.add("selected");
-    div.addEventListener("click", () => {
-      selectedRoad = road;
-      selectedPoint = null;
-      selectedProvince = null;
+    div.textContent = label;
+    if (isObjectSelected(type, id)) div.classList.add("selected");
+    div.addEventListener("click", (e) => {
+      selectObject(type, id, e.ctrlKey || e.shiftKey);
       updateObjectList();
       redraw();
     });
     list.appendChild(div);
+  };
+
+  for (const p of points) {
+    const icon = p.isCity ? (p.cityType === 'port' ? '⚓' : p.cityType === 'airfield' ? '🛩️' : p.cityType === 'farm' ? '🌾' : p.cityType === 'mine' ? '⛏️' : p.cityType === 'factory' ? '🏭' : p.cityType === 'trade' ? '💰' : '🏙️') : '•';
+    addItem('point', p.id, `${icon} Точка #${p.id}${p.isCity ? ` (${p.cityType})` : ''}`);
+  }
+
+  for (const road of roads) {
+    const labels = { road: "🛤️ Дорога", rail: "🚆 Ж/Д", river: "🌊 Река" };
+    addItem('road', road.id, `${labels[road.type] || road.type} #${road.id} (${road.pointIds.length} точек)`);
   }
 
   for (const prov of provinces) {
-    const div = document.createElement("div");
     const name = prov.properties?.name || `Province #${prov.id}`;
     const isLand = name.startsWith('Territory_');
     const icon = isLand ? '🟩' : '📍';
-    div.textContent = `${icon} ${name} (${prov.vertexIds.length} вершин)`;
-    if (selectedProvince && selectedProvince.id === prov.id) div.classList.add("selected");
-    div.addEventListener("click", () => {
-      selectedProvince = prov;
-      selectedPoint = null;
-      selectedRoad = null;
-      updateObjectList();
-      redraw();
-    });
-    list.appendChild(div);
+    addItem('province', prov.id, `${icon} ${name} (${prov.vertexIds.length} вершин)`);
   }
 
-  if (!roads.length && !provinces.length) {
+  if (!points.length && !roads.length && !provinces.length) {
     list.innerHTML = "<div style='color:#555c78;'>Нет объектов</div>";
   }
 }
@@ -1367,11 +1776,15 @@ document.getElementById("jsonFileInput").addEventListener("change", (e) => {
       nextPointId = data.nextPointId || 1;
       nextRoadId = data.nextRoadId || 1;
       nextProvinceId = data.nextProvinceId || 1;
-      selectedPoint = null; selectedRoad = null; selectedProvince = null;
+      selectedObjects = [];
       currentPolyline = []; currentPolygon = []; tracePoints = []; provincePaintPoints = []; connectPoints = [];
       orphanPoints = [];
       isPaintingProvince = false;
       isTracing = false;
+      draggedPointId = null;
+      isSelectingBox = false;
+      groupDragOriginalPositions.clear();
+      dragUndoPushed = false;
       redraw();
       updateObjectList();
       updateStatus();

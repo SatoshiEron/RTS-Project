@@ -285,13 +285,48 @@ export default class GameState {
   }
 
   // ===== ЗАХВАТ ГОРОДА =====
+  // ИЗМЕНЕНО: защита от повторного захвата + проверка врагов в городе
   tryCaptureCity(unit) {
-    const city = this.getCityAt(unit.x, unit.y, 0.02);
-    if (!city) return false;
-    if (city.owner === unit.owner) return false;
+    if (!unit || !unit.isAlive()) return false;
 
+    const city = this.getCityAt(unit.x, unit.y, 0.02);
+
+    // Не в городе — сбросить lastCityId
+    if (!city) {
+      unit.lastCityId = null;
+      return false;
+    }
+
+    // Уже мой город
+    if (city.owner === unit.owner) {
+      unit.lastCityId = city.id;
+      return false;
+    }
+
+    // Уже захватывал этот город — не повторять
+    if (unit.lastCityId === city.id) return false;
+
+    // Сначала уничтожить врагов в городе
+    const enemies = this.units.filter(
+      (u) =>
+        u.owner !== unit.owner &&
+        u.isAlive() &&
+        Math.hypot(u.x - city.x, u.y - city.y) < 0.02
+    );
+
+    if (enemies.length > 0) return false;
+
+    // Захват
     city.owner = unit.owner;
-    city.hp = city.maxHp;
+    if (city.maxHp) city.hp = city.maxHp;
+    unit.lastCityId = city.id;
+
+    // Синхронизация владельца провинции (если есть)
+    if (city.provinceId) {
+      const prov = this.provincesById.get(city.provinceId);
+      if (prov) prov.owner = unit.owner;
+    }
+
     console.log(`🏙️ Город "${city.name}" захвачен юнитом #${unit.id}`);
     return true;
   }
@@ -329,23 +364,16 @@ export default class GameState {
     return income;
   }
 
-  /**
-   * Возвращает доход, содержание и чистый доход для указанного владельца.
-   * @param {number} ownerId - ID игрока или ИИ
-   * @returns {{ income: number, upkeep: number, net: number }}
-   */
   getNetIncome(ownerId) {
     let income = 0;
     let upkeep = 0;
 
-    // Доход с городов
     for (const city of this.cities) {
       if (city.owner === ownerId) {
         income += this.getCityIncome(city);
       }
     }
 
-    // Доход с провинций
     for (const prov of this.map.provinces || []) {
       if (
         prov.owner === ownerId &&
@@ -356,7 +384,6 @@ export default class GameState {
       }
     }
 
-    // Содержание юнитов (1 золото за живого юнита)
     for (const unit of this.units) {
       if (unit.owner === ownerId && unit.isAlive()) {
         upkeep += 1;
@@ -373,7 +400,6 @@ export default class GameState {
   updateEconomy() {
     this.goldPerTurn = 0;
 
-    // Доход с городов
     for (const city of this.cities) {
       const income = this.getCityIncome(city);
       if (city.owner === this.playerId) {
@@ -384,7 +410,6 @@ export default class GameState {
       }
     }
 
-    // Доход с провинций
     for (const prov of this.map.provinces || []) {
       if (!prov.vertices || prov.vertices.length < 3) continue;
 
@@ -398,7 +423,6 @@ export default class GameState {
       }
     }
 
-    // Содержание только живых юнитов
     const playerUnits = this.units.filter(
       (u) => u.owner === this.playerId && u.isAlive()
     );
@@ -408,8 +432,6 @@ export default class GameState {
 
     this.playerGold -= playerUnits.length;
     this.aiGold -= aiUnits.length;
-
-    // Чтобы goldPerTurn отражал чистый доход игрока
     this.goldPerTurn -= playerUnits.length;
 
     if (this.playerGold < 0) this.playerGold = 0;
@@ -433,7 +455,8 @@ export default class GameState {
 Доход: ${income} золота/ход
 Население: ${Math.floor(city.population)}
 Гарнизон: ${
-      this.units.filter((u) => u.x === city.x && u.y === city.y).length
+      this.units.filter((u) => u.x === city.x && u.y === city.y && u.isAlive())
+        .length
     } юнитов
     `);
   }
@@ -459,33 +482,55 @@ export default class GameState {
     console.log(`🎯 Выделено юнитов: ${this.selectedUnits.length}`);
   }
 
+  // ===== ОЧИСТКА МЁРТВЫХ ЮНИТОВ =====
+  // ИЗМЕНЕНО: новый метод
+  cleanupDeadUnits() {
+    const before = this.units.length;
+    this.units = this.units.filter((u) => u.isAlive());
+
+    if (this.selectedUnits) {
+      this.selectedUnits = this.selectedUnits.filter((u) => u.isAlive());
+    }
+    if (this.selectedUnit && !this.selectedUnit.isAlive()) {
+      this.selectedUnit = null;
+    }
+
+    const removed = before - this.units.length;
+    if (removed > 0) {
+      console.log(`💀 Удалено мёртвых юнитов: ${removed}`);
+    }
+  }
+
   // ===== ОБНОВЛЕНИЕ =====
   update(dt) {
-  if (!this.running || this.paused) return;
+    if (!this.running || this.paused) return;
 
-  // ===== ПРИМЕНЯЕМ СКОРОСТЬ =====
-  dt = dt * this.speedMultiplier;
+    dt = dt * this.speedMultiplier;
 
-  this.economyTimer += dt;
-  if (this.economyTimer >= this.economyInterval) {
-    this.economyTimer = 0;
-    this.updateEconomy();
+    this.economyTimer += dt;
+    if (this.economyTimer >= this.economyInterval) {
+      this.economyTimer = 0;
+      this.updateEconomy();
+    }
+
+    this.ai.update(dt);
+
+    for (const unit of this.units) {
+      unit.update(dt, this);
+    }
+
+    this.combat.update(dt);
+    this.clearCompletedTasks();
+
+    // ИЗМЕНЕНО: удаляем мёртвых после боя
+    this.cleanupDeadUnits();
+
+    if (this.selectedUnit && !this.selectedUnit.isAlive()) {
+      this.selectedUnit = null;
+      console.log("💀 Выбранный юнит погиб, выделение сброшено");
+    }
   }
 
-  this.ai.update(dt);
-
-  for (const unit of this.units) {
-    unit.update(dt, this);
-  }
-
-  this.combat.update(dt);
-  this.clearCompletedTasks();
-
-  if (this.selectedUnit && !this.selectedUnit.isAlive()) {
-    this.selectedUnit = null;
-    console.log('💀 Выбранный юнит погиб, выделение сброшено');
-  }
-}
   // ===== СТАТИСТИКА =====
   getStats() {
     return {
@@ -497,6 +542,7 @@ export default class GameState {
 
   getUnitsAt(x, y, radius = 0.02) {
     return this.units.filter((u) => {
+      if (!u.isAlive()) return false;
       const dx = u.x - x;
       const dy = u.y - y;
       return Math.sqrt(dx * dx + dy * dy) <= radius;

@@ -10,7 +10,7 @@ export default class CombatSystem {
   }
 
   update(dt) {
-    const units = this.game.units.filter(u => u.isAlive());
+    const units = this.game.units.filter((u) => u.isAlive());
 
     // ===== 1. Бои юнит ↔ юнит =====
     for (let i = 0; i < units.length; i++) {
@@ -18,6 +18,7 @@ export default class CombatSystem {
         const a = units[i];
         const b = units[j];
         if (a.owner === b.owner) continue;
+        if (!a.isAlive() || !b.isAlive()) continue;
 
         const dx = a.x - b.x;
         const dy = a.y - b.y;
@@ -27,18 +28,23 @@ export default class CombatSystem {
           a.state = "fighting";
           b.state = "fighting";
 
-          const dmgA = Math.max(1, a.attack - b.defense);
-          const dmgB = Math.max(1, b.attack - a.defense);
+          // ИЗМЕНЕНО: defense учитывается один раз, урон масштабируется dt
+          const dpsA = Math.max(1, a.attack - b.defense);
+          const dpsB = Math.max(1, b.attack - a.defense);
 
-          a.takeDamage(dmgB * dt);
-          b.takeDamage(dmgA * dt);
+          a.takeDamage(dpsB * dt);
+          b.takeDamage(dpsA * dt);
         }
       }
     }
 
     // ===== 2. Осады городов =====
     for (const unit of units) {
-      const enemyCities = this.game.cities.filter(c => c.owner !== unit.owner);
+      if (!unit.isAlive()) continue;
+
+      const enemyCities = this.game.cities.filter(
+        (c) => c.owner !== unit.owner
+      );
 
       for (const city of enemyCities) {
         const dx = unit.x - city.x;
@@ -48,31 +54,33 @@ export default class CombatSystem {
         if (dist < this.cityAttackRadius) {
           unit.state = "fighting";
 
-          const dmg = Math.max(1, unit.attack - (city.defense || 20));
-          city.takeDamage(dmg * dt);
+          const dps = Math.max(1, unit.attack - (city.defense || 20));
+          city.takeDamage(dps * dt);
 
           if (city.isDestroyed()) {
             city.owner = unit.owner;
             city.hp = city.maxHp * 0.5;
+            unit.lastCityId = city.id; // ИЗМЕНЕНО: не зацикливать tryCaptureCity
           }
         }
       }
     }
 
-    // ===== 3. Захват провинций (с защитой от undefined) =====
+    // ===== 3. Захват провинций =====
     for (const unit of units) {
+      if (!unit.isAlive()) continue;
+
       const provinces = this.game.map.provinces || [];
       if (!provinces.length) continue;
 
       for (const prov of provinces) {
-        // Вычисляем центр провинции, если его нет
         let centerX, centerY;
         if (prov.center) {
           centerX = prov.center.x;
           centerY = prov.center.y;
         } else if (prov.vertices && prov.vertices.length > 0) {
-          // Считаем центр по вершинам
-          let sumX = 0, sumY = 0;
+          let sumX = 0,
+            sumY = 0;
           for (const v of prov.vertices) {
             sumX += v.x;
             sumY += v.y;
@@ -80,7 +88,7 @@ export default class CombatSystem {
           centerX = sumX / prov.vertices.length;
           centerY = sumY / prov.vertices.length;
         } else {
-          continue; // нет данных — пропускаем
+          continue;
         }
 
         const dx = unit.x - centerX;
@@ -90,7 +98,8 @@ export default class CombatSystem {
         if (dist < this.provinceCaptureRadius) {
           if (prov.owner === unit.owner) continue;
 
-          prov.captureProgress = (prov.captureProgress || 0) + this.captureSpeed * dt;
+          prov.captureProgress =
+            (prov.captureProgress || 0) + this.captureSpeed * dt;
 
           if (prov.captureProgress >= 1) {
             prov.owner = unit.owner;
@@ -105,7 +114,7 @@ export default class CombatSystem {
       }
     }
 
-    // ===== 4. Удаляем мёртвых юнитов =====
-    this.game.units = this.game.units.filter(u => u.isAlive());
+    // Фильтр мёртвых (дополнительно к GameState.cleanupDeadUnits)
+    this.game.units = this.game.units.filter((u) => u.isAlive());
   }
 }

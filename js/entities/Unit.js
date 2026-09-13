@@ -10,7 +10,7 @@ export default class Unit {
     defense = 5,
     vision = 0.05,
     provinceId = null,
-    role = 'infantry'
+    role = "infantry",
   }) {
     this.id = id;
     this.owner = owner;
@@ -33,19 +33,22 @@ export default class Unit {
     this.path = [];
 
     this.role = role;
-    this.aiState = 'idle';
+    this.aiState = "idle";
     this.aiTask = null;
     this.aiPriority = 0;
 
     this.state = "idle";
+
+    // ИЗМЕНЕНО: защита от повторного захвата одного города
+    this.lastCityId = null;
   }
 
   setTarget(tx, ty) {
     this.targetX = tx;
     this.targetY = ty;
     this.state = "moving";
-    if (this.aiState === 'idle') {
-      this.aiState = 'moving';
+    if (this.aiState === "idle") {
+      this.aiState = "moving";
     }
   }
 
@@ -58,12 +61,13 @@ export default class Unit {
 
   clearTask() {
     this.aiTask = null;
-    this.aiState = 'idle';
+    this.aiState = "idle";
     this.aiPriority = 0;
   }
 
   update(dt, game) {
-    if (this.state === "dead") return;
+    // ИЗМЕНЕНО: единая проверка через isAlive()
+    if (!this.isAlive()) return;
 
     this.updateMovement(dt, game);
 
@@ -78,7 +82,7 @@ export default class Unit {
   }
 
   updateMovement(dt, game) {
-    if (this.state === "dead") return;
+    if (!this.isAlive()) return;
 
     if (this.path.length > 0) {
       this.followPath(dt, game);
@@ -101,7 +105,7 @@ export default class Unit {
 
     const maxStep = this.speed * dt;
     const step = Math.min(maxStep, dist);
-    
+
     const newX = this.x + (dx / dist) * step;
     const newY = this.y + (dy / dist) * step;
 
@@ -132,7 +136,7 @@ export default class Unit {
 
     const maxStep = this.speed * dt;
     const step = Math.min(maxStep, dist);
-    
+
     const newX = this.x + (dx / dist) * step;
     const newY = this.y + (dy / dist) * step;
 
@@ -146,9 +150,9 @@ export default class Unit {
     this.y = newY;
   }
 
+  // ИЗМЕНЕНО: урон без повторного вычитания defense (defense уже учтён в CombatSystem)
   takeDamage(amount) {
-    const dmg = Math.max(1, amount - this.defense);
-    this.hp -= dmg;
+    this.hp -= amount;
 
     if (this.hp <= 0) {
       this.hp = 0;
@@ -157,8 +161,9 @@ export default class Unit {
     }
   }
 
+  // ИЗМЕНЕНО: проверка и hp, и state
   isAlive() {
-    return this.state !== "dead";
+    return this.hp > 0 && this.state !== "dead";
   }
 
   getDistanceTo(target) {
