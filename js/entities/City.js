@@ -6,7 +6,7 @@ export default class City {
     y,
     type = "city",
     provinceId = null,
-    owner = 0,            // 0 — нейтрал, 1 — игрок, 2 — ИИ
+    owner = 0,
     population = 1000,
     income = 10,
     level = 1,
@@ -28,23 +28,22 @@ export default class City {
     this.resources = 0;
     this.garrison = garrison;
 
-    // базовые параметры для будущих механик
+    // ===== HP И ЗАЩИТА =====
     this.maxHp = 500;
     this.hp = this.maxHp;
-    this.defense = 20;     // защита города
-    this.growthRate = 0.01; // рост населения
+    this.defense = 20;
+
+    // ===== РОСТ =====
+    this.growthRate = 0.01;
   }
 
   updateEconomy(dt) {
-    // рост населения
     this.population += this.population * this.growthRate * dt;
-
-    // доход зависит от уровня и населения
     const effectiveIncome = this.income * this.level * (this.population / 1000);
-
     this.resources += effectiveIncome * dt;
   }
 
+  // ===== МЕТОДЫ (ВНЕ КОНСТРУКТОРА) =====
   takeDamage(amount) {
     this.hp -= amount;
     if (this.hp < 0) this.hp = 0;
