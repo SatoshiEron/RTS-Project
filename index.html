@@ -6,7 +6,6 @@
   <link rel="stylesheet" href="css/style.css" />
 
   <style>
-    /* Базовые стили (если style.css не подгрузится) */
     body {
       margin: 0;
       overflow: hidden;
@@ -15,8 +14,6 @@
       font-family: 'Segoe UI', sans-serif;
       user-select: none;
     }
-
-  
 
     #gameCanvas {
       width: 100vw;
@@ -130,11 +127,7 @@
       align-items: center;
       gap: 4px;
     }
-    
-  
 
-
-    /* ===== УПРАВЛЕНИЕ СКОРОСТЬЮ ===== */
     #speedControls {
       position: absolute;
       top: 16px;
@@ -175,6 +168,310 @@
       color: #ffd700;
     }
 
+    /* ===== ПАНЕЛЬ ДИПЛОМАТИИ ===== */
+    #diplomacyPanel {
+      position: absolute;
+      top: 116px;
+      right: 16px;
+      z-index: 10;
+      background: rgba(10, 13, 20, 0.85);
+      backdrop-filter: blur(8px);
+      padding: 10px 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      font-size: 13px;
+      color: #e0e6f5;
+      min-width: 200px;
+      user-select: none;
+    }
+
+    #diplomacyStatus {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      font-weight: 600;
+      font-size: 14px;
+    }
+
+    #diplomacyIcon {
+      font-size: 18px;
+    }
+
+    #diplomacyText {
+      color: #66cc88;
+    }
+
+    #diplomacyText.war {
+      color: #ff6666;
+    }
+
+    #diplomacyActions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px;
+    }
+
+    #diplomacyActions button {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 8px;
+      color: #c0d0e0;
+      font-size: 12px;
+      font-weight: 500;
+      padding: 8px 10px;
+      cursor: pointer;
+      transition: all 0.15s;
+      text-align: center;
+    }
+
+    #diplomacyActions button:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-1px);
+    }
+
+    #diplomacyActions button:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    #btnWar {
+      background: rgba(255, 80, 80, 0.12);
+      border-color: rgba(255, 80, 80, 0.25);
+      color: #ff8888;
+    }
+
+    #btnWar:hover:not(:disabled) {
+      background: rgba(255, 80, 80, 0.25);
+    }
+
+    #btnPeace {
+      background: rgba(80, 255, 150, 0.12);
+      border-color: rgba(80, 255, 150, 0.25);
+      color: #88ffbb;
+    }
+
+    #btnPeace:hover:not(:disabled) {
+      background: rgba(80, 255, 150, 0.25);
+    }
+
+    #btnAlliance,
+    #btnTrade {
+      color: #8899bb;
+      opacity: 0.7;
+    }
+
+    /* ===== ВЫБОР СТАРТОВОГО ГОРОДА ===== */
+    #startCityOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1500;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 40px;
+      background: rgba(5, 8, 16, 0.35);
+      pointer-events: none;
+    }
+
+    #startCityOverlay.visible {
+      display: flex;
+    }
+
+    #startCityBox {
+      pointer-events: auto;
+      width: min(420px, calc(100vw - 40px));
+      padding: 28px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(10, 15, 30, 0.96);
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.65);
+      text-align: center;
+    }
+
+    #startCityBox h2 {
+      margin: 0 0 14px;
+      color: #ffffff;
+      font-size: 24px;
+    }
+
+    #startCityBox p {
+      margin: 0 0 18px;
+      color: #9aaaca;
+      font-size: 14px;
+      line-height: 1.5;
+    }
+
+    #startCityName {
+      min-height: 22px;
+      margin-bottom: 18px;
+      color: #ffd166;
+      font-size: 16px;
+      font-weight: 600;
+    }
+
+    #startGameButton {
+      width: 100%;
+      padding: 12px 18px;
+      border: 1px solid rgba(100, 220, 150, 0.3);
+      border-radius: 10px;
+      background: rgba(80, 220, 140, 0.16);
+      color: #9dffc4;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    #startGameButton:hover:not(:disabled) {
+      background: rgba(80, 220, 140, 0.28);
+    }
+
+    #startGameButton:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
+    /* ===== ДРАФТ ПРОВИНЦИЙ ===== */
+    #draftOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1500;
+      display: none;
+      align-items: flex-end;
+      justify-content: center;
+      padding-bottom: 40px;
+      background: rgba(5, 8, 16, 0.35);
+      pointer-events: none;
+    }
+
+    #draftOverlay.visible {
+      display: flex;
+    }
+
+    #draftBox {
+      pointer-events: auto;
+      width: min(480px, calc(100vw - 40px));
+      padding: 24px 28px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(10, 15, 30, 0.96);
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.65);
+      text-align: center;
+      color: #e0e6f5;
+    }
+
+    #draftBox h2 {
+      margin: 0 0 12px;
+      color: #a3b8ff;
+      font-size: 22px;
+    }
+
+    #draftBox p {
+      margin: 0 0 14px;
+      color: #9aaaca;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    #draftStatus {
+      display: flex;
+      justify-content: space-around;
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+
+    #draftStatus b {
+      color: #ffd166;
+      font-size: 16px;
+    }
+
+    #draftTurn {
+      font-size: 14px;
+      color: #88ccff;
+      padding-top: 10px;
+      border-top: 1px solid rgba(255, 255, 255, 0.08);
+    }
+
+    #draftTurnLabel {
+      color: #ffd166;
+    }
+
+    /* ===== НАСТРОЙКА ДРАФТА ===== */
+    #draftSetupOverlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1600;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      background: rgba(5, 8, 16, 0.6);
+    }
+
+    #draftSetupOverlay.visible {
+      display: flex;
+    }
+
+    #draftSetupBox {
+      width: min(440px, calc(100vw - 40px));
+      padding: 26px 28px;
+      border-radius: 18px;
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      background: rgba(10, 15, 30, 0.98);
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.7);
+      text-align: center;
+      color: #e0e6f5;
+    }
+
+    #draftSetupBox h2 {
+      margin: 0 0 10px;
+      color: #a3b8ff;
+      font-size: 22px;
+    }
+
+    #draftSetupBox p {
+      margin: 0 0 16px;
+      color: #9aaaca;
+      font-size: 13px;
+      line-height: 1.5;
+    }
+
+    #draftSetupStart {
+      width: 100%;
+      padding: 12px 18px;
+      border: 1px solid rgba(100, 220, 150, 0.3);
+      border-radius: 10px;
+      background: rgba(80, 220, 140, 0.16);
+      color: #9dffc4;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    #draftSetupStart:hover {
+      background: rgba(80, 220, 140, 0.28);
+    }
+
+    #draftActions button {
+      padding: 9px 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.06);
+      color: #e0e6f5;
+      font-size: 12px;
+      cursor: pointer;
+    }
+
+    #draftActions button:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    #draftActions button:disabled {
+      opacity: 0.35;
+      cursor: not-allowed;
+    }
+
     /* ===== СТИЛИ ПАНЕЛИ ГОРОДА ===== */
     .city-panel-overlay {
       position: fixed;
@@ -206,13 +503,15 @@
       border-radius: 20px;
       padding: 20px 24px 24px;
       min-width: 340px;
-      max-width: 420px;
-      width: 90%;
+      max-width: 460px;   /* ← чуть шире, чтобы 2 колонки влезали */
+      width: min(90%, 460px);
+      box-sizing: border-box;
       color: #e0e6f5;
       box-shadow: 0 25px 80px rgba(0, 0, 0, 0.9);
       z-index: 1000;
       transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
       pointer-events: auto;
+      overflow: hidden;
       display: none;
     }
 
@@ -327,14 +626,359 @@
       transform: translateY(-1px);
     }
 
-    .city-panel-actions .action-btn:active {
-      transform: translateY(0);
-    }
-
     .city-panel-actions .action-btn:disabled {
       opacity: 0.35;
       cursor: not-allowed;
-      transform: none !important;
+    }
+    
+        /* ===== НАЙМ: сетка кнопок внутри панели ===== */
+    .city-panel .unit-type-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+      width: 100%;
+      max-width: 100%;
+      box-sizing: border-box;
+      margin-bottom: 12px;
+    }
+
+    .city-panel .unit-type-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 2px;
+      width: 100%;
+      min-width: 0;
+      max-width: 100%;
+      box-sizing: border-box;
+      padding: 8px 6px;
+      font-size: 11px;
+      line-height: 1.2;
+      text-align: center;
+      overflow: hidden;
+    }
+
+    .city-panel .unit-type-btn .unit-icon {
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .city-panel .unit-type-btn .unit-name {
+      font-size: 11px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 100%;
+    }
+
+    .city-panel .unit-type-btn .unit-cost {
+      font-size: 10px;
+      color: #ffd166;
+      white-space: nowrap;
+    }
+
+    /* ===== СТИЛИ ПАНЕЛИ ЮНИТА ===== */
+    .unit-panel-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.5);
+      backdrop-filter: blur(4px);
+      z-index: 999;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.3s ease;
+    }
+
+    .unit-panel-overlay.visible {
+      display: block;
+      opacity: 1;
+    }
+
+    .unit-panel {
+      position: fixed;
+      bottom: 40px;
+      left: 50%;
+      transform: translateX(-50%) translateY(120%);
+      background: rgba(10, 15, 30, 0.95);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 20px 24px 24px;
+      min-width: 320px;
+      max-width: 400px;
+      width: 90%;
+      color: #e0e6f5;
+      box-shadow: 0 25px 80px rgba(0, 0, 0, 0.9);
+      z-index: 1000;
+      transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: auto;
+      display: none;
+      cursor: grab;
+    }
+
+    .unit-panel.visible {
+      transform: translateX(-50%) translateY(0);
+      display: block;
+    }
+
+    .unit-panel.dragging {
+      cursor: grabbing;
+    }
+
+    .unit-panel .close-btn {
+      position: absolute;
+      top: 12px;
+      right: 16px;
+      background: none;
+      border: none;
+      color: #556688;
+      font-size: 22px;
+      cursor: pointer;
+      transition: color 0.2s;
+      padding: 4px 8px;
+      line-height: 1;
+    }
+
+    .unit-panel .close-btn:hover {
+      color: #e0e6f5;
+    }
+
+    .unit-panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-right: 32px;
+    }
+
+    .unit-panel-header h2 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+      color: #fff;
+    }
+
+    .unit-owner {
+      font-size: 12px;
+      padding: 4px 14px;
+      border-radius: 20px;
+      font-weight: 500;
+      white-space: nowrap;
+    }
+
+    .unit-owner.player {
+      background: rgba(50, 150, 255, 0.2);
+      color: #4a9eff;
+    }
+
+    .unit-owner.ai {
+      background: rgba(255, 80, 80, 0.2);
+      color: #ff6666;
+    }
+
+    .unit-owner.neutral {
+      background: rgba(200, 200, 200, 0.08);
+      color: #7788aa;
+    }
+
+    .unit-panel-body {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 4px 16px;
+      margin-bottom: 12px;
+    }
+
+    .unit-stat {
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+    }
+
+    .unit-stat-wide {
+      grid-column: 1 / -1;
+    }
+
+    .unit-stat .label {
+      color: #556688;
+      font-size: 13px;
+    }
+
+    .unit-stat .value {
+      color: #e0e6f5;
+      font-weight: 500;
+      font-size: 13px;
+    }
+
+    .unit-hp-bar {
+      grid-column: 1 / -1;
+      height: 8px;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: 4px;
+      overflow: hidden;
+      margin-bottom: 10px;
+    }
+
+    .unit-hp-fill {
+      height: 100%;
+      transition: width 0.3s ease, background 0.3s ease;
+    }
+
+    .unit-panel-actions {
+      display: flex;
+      gap: 10px;
+    }
+
+    .unit-panel-actions .action-btn {
+      flex: 1;
+      padding: 10px 14px;
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      border-radius: 12px;
+      color: #e0e6f5;
+      font-size: 13px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s;
+      text-align: center;
+    }
+
+    .unit-panel-actions .action-btn:hover {
+      background: rgba(255, 255, 255, 0.1);
+      border-color: rgba(255, 255, 255, 0.15);
+      transform: translateY(-1px);
+    }
+
+    /* ===== СТИЛИ ПАНЕЛИ ПОБЕДЫ ===== */
+    .victory-panel-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(6px);
+      z-index: 2000;
+      display: none;
+      opacity: 0;
+      transition: opacity 0.4s ease;
+    }
+
+    .victory-panel-overlay.visible {
+      display: block;
+      opacity: 1;
+    }
+
+    .victory-panel {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%) scale(0.85);
+      background: rgba(10, 15, 30, 0.96);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 24px;
+      padding: 32px 40px;
+      min-width: 400px;
+      max-width: 520px;
+      color: #e0e6f5;
+      box-shadow: 0 25px 100px rgba(0, 0, 0, 0.95);
+      z-index: 2001;
+      opacity: 0;
+      transition: opacity 0.4s ease, transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+      pointer-events: auto;
+      display: none;
+      text-align: center;
+    }
+
+    .victory-panel.visible {
+      opacity: 1;
+      transform: translate(-50%, -50%) scale(1);
+      display: block;
+    }
+
+    .victory-panel-title {
+      font-size: 42px;
+      font-weight: 800;
+      letter-spacing: 4px;
+      margin-bottom: 12px;
+      text-shadow: 0 0 30px currentColor;
+    }
+
+    .victory-panel-title.victory {
+      color: #ffd700;
+      animation: victory-pulse 2s ease-in-out infinite;
+    }
+
+    .victory-panel-title.defeat {
+      color: #ff4444;
+    }
+
+    @keyframes victory-pulse {
+      0%, 100% { text-shadow: 0 0 30px #ffd700; }
+      50% { text-shadow: 0 0 60px #ffd700, 0 0 90px #ffaa00; }
+    }
+
+    .victory-panel-subtitle {
+      font-size: 14px;
+      color: #8899bb;
+      margin-bottom: 24px;
+      line-height: 1.5;
+    }
+
+    .victory-panel-stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px 24px;
+      margin-bottom: 28px;
+      padding: 16px;
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+    }
+
+    .victory-stat {
+      display: flex;
+      justify-content: space-between;
+      padding: 4px 0;
+      font-size: 13px;
+    }
+
+    .victory-stat .label {
+      color: #556688;
+    }
+
+    .victory-stat .value {
+      color: #e0e6f5;
+      font-weight: 600;
+    }
+
+    .victory-panel-actions {
+      display: flex;
+      gap: 12px;
+    }
+
+    .victory-panel-actions .action-btn {
+      flex: 1;
+      padding: 14px 20px;
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 12px;
+      color: #e0e6f5;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .victory-panel-actions .action-btn:hover {
+      background: rgba(255, 255, 255, 0.12);
+      border-color: rgba(255, 255, 255, 0.2);
+      transform: translateY(-2px);
     }
 
     /* ===== ТЕРМИНАЛ ===== */
@@ -396,6 +1040,7 @@
     .terminal-line.error { color: #ff6666; }
     .terminal-line.system { color: #8899bb; }
     .terminal-line.command { color: #4a9eff; }
+    .terminal-line.warning { color: #ffaa44; }
 
     #terminal-input-line {
       display: flex;
@@ -423,7 +1068,23 @@
 
 <body>
 
-  <!-- ===== ЗАГРУЗЧИК ===== -->
+  <div id="menuOverlay" style="
+    position: fixed;
+    inset: 0;
+    z-index: 99999;
+    background: #0a0d14;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  ">
+    <iframe
+      id="menuFrame"
+      src="menu.html"
+      style="width: 100%; height: 100%; border: none; display: block;"
+      title="Главное меню"
+    ></iframe>
+  </div>
+
   <div id="fileLoaderBox">
     <label>📂 Загрузить world.json</label>
     <input id="fileLoader" type="file" accept=".json" />
@@ -432,15 +1093,19 @@
     <input id="imageLoader" type="file" accept="image/png" />
   </div>
 
-  <!-- ===== ИНФОПАНЕЛЬ ===== -->
   <div id="infoPanel">📡 Ожидание загрузки карты...</div>
 
-  <!-- ===== ЗОЛОТО ===== -->
   <div id="goldDisplay">
     <span>👤</span>
     <span>🪙</span>
     <span id="goldAmount">0</span>
     <span id="goldChange">+0</span>
+  </div>
+
+  <div id="resourcesDisplay" style="position:absolute;top:16px;right:230px;z-index:10;background:rgba(10,13,20,0.85);backdrop-filter:blur(8px);padding:8px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.08);display:flex;gap:12px;font-size:13px;font-weight:600;">
+    <span title="Руда" style="color:#88aaff;">🪨 <span id="oreAmount">0</span></span>
+    <span title="Продукция" style="color:#ffaa88;">📦 <span id="goodsAmount">0</span></span>
+    <span title="Хлеб" style="color:#ffdd66;">🌾 <span id="foodAmount">0</span></span>
   </div>
 
   <div id="aiGoldDisplay">
@@ -450,7 +1115,6 @@
     <span id="aiGoldChange">+0</span>
   </div>
 
-  <!-- ===== КНОПКИ УПРАВЛЕНИЯ СКОРОСТЬЮ ===== -->
   <div id="speedControls">
     <button id="btnSlower" title="Замедлить">−</button>
     <span id="speedDisplay">1.0x</span>
@@ -458,10 +1122,59 @@
     <button id="btnPause" title="Пауза">⏸</button>
   </div>
 
-  <!-- ===== CANVAS ===== -->
+  <div id="diplomacyPanel">
+    <div id="diplomacyStatus">
+      <span id="diplomacyIcon">🕊️</span>
+      <span id="diplomacyText">Мир</span>
+    </div>
+    <div id="diplomacyActions">
+      <button id="btnWar" title="Объявить войну">⚔️ Война</button>
+      <button id="btnPeace" title="Предложить мир">🕊️ Мир</button>
+      <button id="btnAlliance" title="Союз (в разработке)">🤝 Союз</button>
+      <button id="btnTrade" title="Торговля (в разработке)">💰 Торг.</button>
+    </div>
+  </div>
+
   <canvas id="gameCanvas"></canvas>
 
-  <!-- ===== ВСТРОЕННЫЙ ТЕРМИНАЛ ===== -->
+  <div id="draftSetupOverlay">
+    <div id="draftSetupBox">
+      <h2>🎲 Настройка драфта</h2>
+      <p>Сколько провинций оставить себе? Остальные достанутся ИИ.</p>
+
+      <div style="margin-bottom:18px;">
+        <label style="display:block;margin-bottom:8px;">
+          Провинций игроку: <b id="draftSetupCount" style="color:#ffd166;">0</b>
+        </label>
+        <input id="draftSetupSlider" type="range" min="1" max="1" value="1"
+               style="width:100%;cursor:pointer;">
+        <div style="display:flex;justify-content:space-between;font-size:11px;color:#8899bb;margin-top:6px;">
+          <span>💀 Хард (1)</span>
+          <span>🏆 Стандарт</span>
+        </div>
+      </div>
+
+      <button id="draftSetupStart">▶ Начать драфт</button>
+    </div>
+  </div>
+
+  <div id="draftOverlay">
+    <div id="draftBox">
+      <h2>🎲 Драфт провинций</h2>
+      <p id="draftHint">Кликните по провинции, чтобы выбрать её.</p>
+      <div id="draftStatus">
+        <span>👤 Игрок: <b id="draftPlayerPoints">0</b> очков</span>
+        <span>🤖 ИИ: <b id="draftAiPoints">0</b> очков</span>
+      </div>
+      <div id="draftTurn">Ход: <b id="draftTurnLabel">игрок</b></div>
+
+      <div id="draftActions" style="display:flex;gap:8px;margin-top:12px;">
+        <button id="draftSkipBtn" style="flex:1;">⏭ Пропустить ход</button>
+        <button id="draftSettingsBtn" style="flex:1;">⚙️ Настройки</button>
+      </div>
+    </div>
+  </div>
+
   <div id="terminal">
     <div id="terminal-header">
       <span>⬛ Терминал</span>
@@ -476,23 +1189,47 @@
     </div>
   </div>
 
-  <!-- ===== СКРИПТЫ ===== -->
   <script type="module">
+    window.startGameFromMenu = function () {
+      const overlay = document.getElementById("menuOverlay");
+      if (overlay) {
+        overlay.style.transition = "opacity 0.4s ease";
+        overlay.style.opacity = "0";
+        setTimeout(() => {
+          overlay.style.display = "none";
+        }, 400);
+      }
+      console.log("▶ Меню скрыто, игра начинается");
+    };
+
+    window.showMenuOverlay = function () {
+      const overlay = document.getElementById("menuOverlay");
+      if (overlay) {
+        overlay.style.display = "flex";
+        void overlay.offsetWidth;
+        overlay.style.opacity = "1";
+      }
+    };
+
     import CityPanel from "./js/ui/CityPanel.js";
+    import UnitPanel from "./js/ui/UnitPanel.js";
+    import VictoryPanel from "./js/ui/VictoryPanel.js";
+    import FactionPanel from "./js/ui/FactionPanel.js";
     import GameState from "./js/core/GameState.js";
     import Renderer from "./js/core/Renderer.js";
     import InputHandler from "./js/core/InputHandler.js";
     import Camera from "./js/core/Camera.js";
     import SelectionManager from "./js/core/SelectionManager.js";
 
-    /* =========================================================
-       DOM
-       ========================================================= */
     const canvas = document.getElementById("gameCanvas");
     const infoPanel = document.getElementById("infoPanel");
 
     const goldAmount = document.getElementById("goldAmount");
     const goldChange = document.getElementById("goldChange");
+
+    const oreAmount = document.getElementById("oreAmount");
+    const goodsAmount = document.getElementById("goodsAmount");
+    const foodAmount = document.getElementById("foodAmount");
 
     const aiGoldAmount = document.getElementById("aiGoldAmount");
     const aiGoldChange = document.getElementById("aiGoldChange");
@@ -505,9 +1242,26 @@
     const fileLoader = document.getElementById("fileLoader");
     const imageLoader = document.getElementById("imageLoader");
 
-    /* =========================================================
-       CANVAS RESIZE
-       ========================================================= */
+    const diplomacyIcon = document.getElementById("diplomacyIcon");
+    const diplomacyText = document.getElementById("diplomacyText");
+    const btnWar = document.getElementById("btnWar");
+    const btnPeace = document.getElementById("btnPeace");
+    const btnAlliance = document.getElementById("btnAlliance");
+    const btnTrade = document.getElementById("btnTrade");
+
+    const draftOverlay = document.getElementById("draftOverlay");
+    const draftPlayerPoints = document.getElementById("draftPlayerPoints");
+    const draftAiPoints = document.getElementById("draftAiPoints");
+    const draftTurnLabel = document.getElementById("draftTurnLabel");
+    const draftHint = document.getElementById("draftHint");
+
+    const draftSetupOverlay = document.getElementById("draftSetupOverlay");
+    const draftSetupSlider = document.getElementById("draftSetupSlider");
+    const draftSetupCount = document.getElementById("draftSetupCount");
+    const draftSetupStart = document.getElementById("draftSetupStart");
+    const draftSkipBtn = document.getElementById("draftSkipBtn");
+    const draftSettingsBtn = document.getElementById("draftSettingsBtn");
+
     function resize() {
       canvas.width = window.innerWidth;
       canvas.height = window.innerHeight;
@@ -516,22 +1270,19 @@
     resize();
     window.addEventListener("resize", resize);
 
-    /* =========================================================
-       GAME STATE
-       ========================================================= */
     let game = null;
     let renderer = null;
     let input = null;
     let camera = null;
     let cityPanel = null;
+    let unitPanel = null;
+    let victoryPanel = null;
+    let factionPanel = null;
     let selectionManager = null;
 
     let animationFrameId = null;
     let pendingBackgroundImage = null;
 
-    /* =========================================================
-       WORLD.JSON
-       ========================================================= */
     fileLoader.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -546,25 +1297,52 @@
         const world = JSON.parse(text);
 
         game = new GameState(world);
+        window.game = game;   // ИЗМЕНЕНО: отладка из консоли
+
+        // ИЗМЕНЕНО: построить граф дорог для призыва.
+        game.buildRoadGraph();
+
         updateSpeedControls();
+        updateDiplomacyPanel();
 
         camera = new Camera(canvas);
         camera.centerOnWorld();
 
         renderer = new Renderer(canvas, game, camera);
+        renderer.loadCitySprites('assets/icons/');
 
         if (pendingBackgroundImage) {
           renderer.setBackgroundImage(pendingBackgroundImage);
         }
 
         cityPanel = new CityPanel(game);
+        unitPanel = new UnitPanel(game);
+        victoryPanel = new VictoryPanel(game);
+        game.victoryPanel = victoryPanel;
+        factionPanel = new FactionPanel(game);
 
-        input = new InputHandler(canvas, game, renderer, camera, cityPanel);
+        input = new InputHandler(canvas, game, renderer, camera, cityPanel, unitPanel);
         renderer.setInputHandler(input);
 
         selectionManager = new SelectionManager(canvas, game, camera, renderer);
 
-        infoPanel.textContent = "✅ Карта загружена!";
+        // Сначала — настройка драфта, потом сам драфт.
+        const cityProvincesCount = new Set(
+          game.cities.map(c => c.provinceId).filter(Boolean)
+        ).size;
+
+        if (cityProvincesCount < 2) {
+          infoPanel.textContent = `❌ Слишком мало провинций с городами (${cityProvincesCount})`;
+          return;
+        }
+
+        draftSetupSlider.min = 1;
+        draftSetupSlider.max = Math.max(1, Math.ceil(cityProvincesCount * 0.5));
+        draftSetupSlider.value = draftSetupSlider.max;
+        updateDraftSetupLabel();
+
+        infoPanel.textContent = `🎲 Настройка драфта`;
+        showDraftSetupOverlay();
         loop();
 
       } catch (err) {
@@ -573,9 +1351,6 @@
       }
     });
 
-    /* =========================================================
-       IMAGE / PNG
-       ========================================================= */
     imageLoader.addEventListener("change", async (e) => {
       const file = e.target.files[0];
       if (!file) return;
@@ -597,21 +1372,19 @@
       reader.readAsDataURL(file);
     });
 
-    /* =========================================================
-       INFO PANEL
-       ========================================================= */
     function updateInfoPanel() {
       if (!game) {
         infoPanel.textContent = "📡 Ожидание загрузки карты...";
         return;
       }
 
-      /* =========================
-         ЗОЛОТО ИГРОКА (чистый доход)
-         ========================= */
       if (goldAmount) {
         goldAmount.textContent = Math.floor(game.playerGold);
       }
+
+      if (oreAmount) oreAmount.textContent = Math.floor(game.playerOre || 0);
+      if (goodsAmount) goodsAmount.textContent = Math.floor(game.playerGoods || 0);
+      if (foodAmount) foodAmount.textContent = Math.floor(game.playerFood || 0);
 
       if (goldChange) {
         const net = game.getNetIncome(game.playerId);
@@ -620,9 +1393,6 @@
         goldChange.style.color = net.net >= 0 ? '#66cc88' : '#ff6666';
       }
 
-      /* =========================
-         ЗОЛОТО ИИ (чистый доход)
-         ========================= */
       if (aiGoldAmount) {
         aiGoldAmount.textContent = Math.floor(game.aiGold);
       }
@@ -634,18 +1404,12 @@
         aiGoldChange.style.color = net.net >= 0 ? '#66cc88' : '#ff6666';
       }
 
-      /* =========================
-         SELECTED CITY
-         ========================= */
       if (game.selectedCity) {
         const c = game.selectedCity;
         infoPanel.textContent = `🏙️ ${c.name || "Город"} (уровень ${c.level || 1})`;
         return;
       }
 
-      /* =========================
-         SELECTED POINT
-         ========================= */
       if (game.selectedPoint) {
         const p = game.selectedPoint;
         const type = p.cityType ? `, ${p.cityType}` : "";
@@ -653,27 +1417,17 @@
         return;
       }
 
-      /* =========================
-         SELECTED PROVINCE
-         ========================= */
       if (game.selectedProvince) {
         const prov = game.selectedProvince;
         infoPanel.textContent = `🗺️ Провинция: ${prov.name || prov.id}`;
         return;
       }
 
-      /* =========================
-         GENERAL STATS
-         ========================= */
       const stats = game.getStats();
       infoPanel.textContent =
         `📍 ${stats.points} точек | 🛤️ ${stats.roads} дорог | 🏛️ ${stats.provinces} провинций | 🏙️ ${game.cities.length} городов`;
     }
 
-
-    /* =========================================================
-       УПРАВЛЕНИЕ СКОРОСТЬЮ
-       ========================================================= */
     function updateSpeedControls() {
       if (!game) return;
 
@@ -691,34 +1445,273 @@
 
     btnSlower.addEventListener("click", () => {
       if (!game || typeof game.setSpeed !== "function") return;
-
       const currentSpeed = game.speedMultiplier ?? 1;
       const newSpeed = Math.max(0.1, currentSpeed - 0.1);
-
       game.setSpeed(Number(newSpeed.toFixed(1)));
       updateSpeedControls();
     });
 
     btnFaster.addEventListener("click", () => {
       if (!game || typeof game.setSpeed !== "function") return;
-
       const currentSpeed = game.speedMultiplier ?? 1;
       const newSpeed = Math.min(5.0, currentSpeed + 0.1);
-
       game.setSpeed(Number(newSpeed.toFixed(1)));
       updateSpeedControls();
     });
 
     btnPause.addEventListener("click", () => {
       if (!game || typeof game.togglePause !== "function") return;
-
       game.togglePause();
       updateSpeedControls();
     });
 
-    /* =========================================================
-       GAME LOOP
-       ========================================================= */
+    function updateDiplomacyPanel() {
+      if (!game || typeof game.getDiplomaticRelation !== "function") return;
+
+      const relation = game.getDiplomaticRelation(game.playerId, game.aiId);
+      const atWar = relation === "war";
+
+      if (atWar) {
+        diplomacyIcon.textContent = "⚔️";
+        diplomacyText.textContent = "Война";
+        diplomacyText.classList.add("war");
+      } else {
+        diplomacyIcon.textContent = "🕊️";
+        diplomacyText.textContent = "Мир";
+        diplomacyText.classList.remove("war");
+      }
+
+      btnWar.disabled = atWar;
+      btnPeace.disabled = !atWar;
+    }
+
+    btnWar.addEventListener("click", () => {
+      if (!game || typeof game.declareWar !== "function") return;
+      const result = game.declareWar(game.playerId, game.aiId);
+      if (result.success) {
+        terminalLog("⚔️ Война объявлена!", "success");
+        updateDiplomacyPanel();
+      } else {
+        terminalLog(`❌ ${result.reason}`, "error");
+      }
+    });
+
+    btnPeace.addEventListener("click", () => {
+      if (!game || typeof game.proposePeace !== "function") return;
+      const result = game.proposePeace(game.playerId, game.aiId);
+      if (result.accepted) {
+        terminalLog("🕊️ Мир принят!", "success");
+        updateDiplomacyPanel();
+      } else {
+        terminalLog("❌ Мир отклонён ИИ", "error");
+      }
+    });
+
+    btnAlliance.addEventListener("click", () => {
+      terminalLog("🤝 Союз: функция в разработке", "system");
+      alert("🤝 Союз\n\nФункция появится в следующей версии!");
+    });
+
+    btnTrade.addEventListener("click", () => {
+      terminalLog("💰 Торговля: функция в разработке", "system");
+      alert("💰 Торговля\n\nФункция появится в следующей версии!");
+    });
+
+    function showDraftSetupOverlay() {
+      if (!draftSetupOverlay) return;
+      draftSetupOverlay.classList.add("visible");
+    }
+
+    function hideDraftSetupOverlay() {
+      if (!draftSetupOverlay) return;
+      draftSetupOverlay.classList.remove("visible");
+    }
+
+    function updateDraftSetupLabel() {
+      if (!game || !draftSetupSlider || !draftSetupCount) return;
+      const total = new Set(
+        game.cities.map(c => c.provinceId).filter(Boolean)
+      ).size;
+      const val = parseInt(draftSetupSlider.value, 10) || 1;
+      const pct = total > 0 ? Math.round((val / total) * 100) : 0;
+      draftSetupCount.textContent = `${val} (${pct}%)`;
+    }
+
+    draftSetupSlider?.addEventListener("input", updateDraftSetupLabel);
+
+    draftSetupStart?.addEventListener("click", () => {
+      if (!game) return;
+
+      if (game.draft && game.draft.active && game.draft.pickedProvinceIds.length > 0) {
+        if (!confirm("Прогресс драфта будет сброшен. Продолжить?")) return;
+      }
+
+      const playerPts = parseInt(draftSetupSlider.value, 10) || 1;
+
+      const draftResult = game.startDraft({ playerPts });
+      if (!draftResult.success) {
+        infoPanel.textContent = `❌ Драфт не запущен: ${draftResult.reason}`;
+        return;
+      }
+
+      hideDraftSetupOverlay();
+      infoPanel.textContent = `🎲 Драфт провинций. Ход: игрок`;
+      showDraftOverlay();
+    });
+
+    function showDraftOverlay() {
+      if (!draftOverlay) return;
+      draftOverlay.classList.add("visible");
+      updateDraftUI();
+    }
+
+    function hideDraftOverlay() {
+      if (!draftOverlay) return;
+      draftOverlay.classList.remove("visible");
+    }
+
+    function updateDraftUI() {
+      if (!game || !game.draft) return;
+
+      if (game.draft.active && game.draft.currentTurn === 'player' && game.draft.playerPoints <= 0) {
+        if (game.draft.aiPoints > 0) {
+          game.draft.currentTurn = 'ai';
+        } else {
+          game.finishDraft();
+          hideDraftOverlay();
+          hideDraftSetupOverlay();
+          infoPanel.textContent = "▶ Игра началась!";
+          return;
+        }
+      }
+
+      draftPlayerPoints.textContent = game.draft.playerPoints;
+      draftAiPoints.textContent = game.draft.aiPoints;
+
+      const isPlayerTurn = game.draft.currentTurn === 'player';
+      draftTurnLabel.textContent = isPlayerTurn ? 'игрок' : 'ИИ';
+      draftTurnLabel.style.color = isPlayerTurn ? '#88ccff' : '#ff6666';
+
+      draftHint.textContent = isPlayerTurn
+        ? 'Кликните по провинции, чтобы выбрать её.'
+        : 'ИИ выбирает провинцию...';
+
+      if (draftSkipBtn) {
+        if (isPlayerTurn && game.draft.playerPoints > 0) {
+          draftSkipBtn.textContent = '⏭ Пропустить ход';
+          draftSkipBtn.disabled = false;
+        } else if (!isPlayerTurn && game.draft.aiPoints > 0) {
+          draftSkipBtn.textContent = '↩️ Вернуть ход';
+          draftSkipBtn.disabled = false;
+        } else {
+          draftSkipBtn.textContent = '⏭ Пропустить ход';
+          draftSkipBtn.disabled = true;
+        }
+      }
+
+      if (!isPlayerTurn && game.draft.active) {
+        const delay = game.draft.aiPoints > 3 ? 150 : 400;
+
+        setTimeout(() => {
+          if (!game || !game.draft || !game.draft.active) return;
+
+          const result = game.aiDraftTurn();
+          if (result && result.success) {
+            updateDraftUI();
+            if (game.renderer && game.renderer.markTerritoryDirty) {
+              game.renderer.markTerritoryDirty();
+            }
+          } else if (game.draft.active) {
+            game.draft.currentTurn = 'player';
+            updateDraftUI();
+          }
+        }, delay);
+      }
+
+      if (!game.draft.active && draftOverlay && draftOverlay.classList.contains("visible")) {
+        hideDraftOverlay();
+        hideDraftSetupOverlay();
+      }
+    }
+
+    function handleDraftClick(wx, wy) {
+      if (!game || !game.draft || !game.draft.active) return false;
+      if (game.draft.currentTurn !== 'player') return true;
+
+      const prov = game.getProvinceAt(wx, wy);
+      if (!prov) return true;
+
+      if (!game.draft.cityProvinces.includes(prov.id)) {
+        terminalLog('⚠️ Эта провинция недоступна для выбора', 'warning');
+        return true;
+      }
+
+      if (game.draft.pickedProvinceIds.includes(prov.id)) {
+        terminalLog('⚠️ Эта провинция уже выбрана', 'warning');
+        return true;
+      }
+
+      const result = game.pickProvince(prov.id, game.playerId);
+      if (!result.success) {
+        terminalLog(`⚠️ ${result.reason}`, 'warning');
+        return true;
+      }
+
+      terminalLog(`🎲 Вы выбрали провинцию #${prov.id}`, 'success');
+
+      if (game.renderer && game.renderer.markTerritoryDirty) {
+        game.renderer.markTerritoryDirty();
+      }
+
+      updateDraftUI();
+
+      if (!game.draft.active) {
+        hideDraftOverlay();
+        hideDraftSetupOverlay();
+        infoPanel.textContent = "▶ Игра началась!";
+      }
+
+      return true;
+    }
+
+    window.handleDraftClick = handleDraftClick;
+
+    draftSkipBtn?.addEventListener("click", () => {
+      if (!game || !game.draft || !game.draft.active) return;
+
+      const isPlayerTurn = game.draft.currentTurn === 'player';
+
+      const result = isPlayerTurn
+        ? game.giveUpDraft()
+        : game.reclaimDraft();
+
+      if (!result.success) {
+        terminalLog(`⚠️ ${result.reason}`, 'warning');
+        return;
+      }
+
+      updateDraftUI();
+    });
+
+    draftSettingsBtn?.addEventListener("click", () => {
+      if (!game || !game.draft) return;
+
+      if (game.draft.active && game.draft.pickedProvinceIds.length > 0) {
+        if (!confirm("Прогресс драфта будет сброшен при смене настроек. Продолжить?")) return;
+      }
+
+      const total = new Set(
+        game.cities.map(c => c.provinceId).filter(Boolean)
+      ).size;
+      draftSetupSlider.max = Math.max(1, Math.ceil(total * 0.5));
+      draftSetupSlider.value = game.draft.active
+        ? game.draft.playerPoints
+        : draftSetupSlider.max;
+      updateDraftSetupLabel();
+
+      showDraftSetupOverlay();
+    });
+
     function loop() {
       if (!game || !renderer) {
         animationFrameId = null;
@@ -730,23 +1723,28 @@
       game.update(dt);
       renderer.render();
       updateInfoPanel();
+      updateDiplomacyPanel();
 
       animationFrameId = requestAnimationFrame(loop);
     }
 
-    /* =========================================================
-       ТЕРМИНАЛ
-       ========================================================= */
     const terminalOutput = document.getElementById('terminal-output');
     const terminalInput = document.getElementById('terminal-input');
     const terminalToggle = document.getElementById('terminal-toggle');
     const terminal = document.getElementById('terminal');
+
+    const TERMINAL_MAX_LINES = 200;
 
     function terminalLog(message, type = 'info') {
       const line = document.createElement('div');
       line.className = `terminal-line ${type}`;
       line.textContent = message;
       terminalOutput.appendChild(line);
+
+      while (terminalOutput.children.length > TERMINAL_MAX_LINES) {
+        terminalOutput.removeChild(terminalOutput.firstChild);
+      }
+
       terminalOutput.scrollTop = terminalOutput.scrollHeight;
     }
 
@@ -782,6 +1780,10 @@
           terminalLog('  /cities            — Показать список городов', 'system');
           terminalLog('  /clear             — Очистить терминал', 'system');
           terminalLog('  /status            — Текущее состояние игры', 'system');
+          terminalLog('  /war ai            — Объявить войну ИИ', 'system');
+          terminalLog('  /peace ai          — Предложить мир ИИ', 'system');
+          terminalLog('  /diplomacy         — Показать дипломатию', 'system');
+          terminalLog('  /manpower          — Резерв людей (игрок / ИИ)', 'system');
           break;
 
         case '/speed':
@@ -849,8 +1851,71 @@
           terminalLog(game.paused ? '⏸ Игра на паузе' : '▶ Игра запущена', 'info');
           break;
 
+        case '/war':
+          if (args[0] === 'ai') {
+            const result = game.declareWar(game.playerId, game.aiId);
+            if (result.success) {
+              terminalLog('⚔️ Война объявлена!', 'success');
+              updateDiplomacyPanel();
+            } else {
+              terminalLog(`❌ ${result.reason}`, 'error');
+            }
+          } else {
+            terminalLog('❌ Используйте: /war ai', 'error');
+          }
+          break;
+
+        case '/peace':
+          if (args[0] === 'ai') {
+            const result = game.proposePeace(game.playerId, game.aiId);
+            if (result.accepted) {
+              terminalLog('🕊️ Мир принят!', 'success');
+              updateDiplomacyPanel();
+            } else {
+              terminalLog(`❌ Мир отклонён: ${result.reason || 'ИИ отказался'}`, 'error');
+            }
+          } else {
+            terminalLog('❌ Используйте: /peace ai', 'error');
+          }
+          break;
+
+        case '/diplomacy':
+          const relation = game.getDiplomaticRelation(game.playerId, game.aiId);
+          terminalLog(`📜 Дипломатия: ${relation === 'war' ? '⚔️ Война' : '🕊️ Мир'}`, 'info');
+          break;
+
+        // ИЗМЕНЕНО: команда для проверки manpower.
+        case '/manpower': {
+          const mp = game.getFactionManpower(game.playerId);
+          terminalLog(`👥 Люди игрока: ${mp.total} / ${mp.max}`, 'info');
+          const mpAi = game.getFactionManpower(game.aiId);
+          terminalLog(`🤖 Люди ИИ: ${mpAi.total} / ${mpAi.max}`, 'info');
+          break;
+        }
+        
+        case '/draft': {
+          const policy = game.getDraftPolicy(game.playerId);
+          terminalLog(`🎖️ Политика призыва: ${policy}`, 'info');
+          const mp2 = game.getFactionManpower(game.playerId);
+          terminalLog(`👥 Люди: ${mp2.total} / ${mp2.max}`, 'info');
+          break;
+        }
+
+          case '/policy': {
+          const newPolicy = args[0];
+          if (newPolicy === 'city' || newPolicy === 'center') {
+            game.setDraftPolicy(game.playerId, newPolicy);
+            terminalLog(`🎖️ Политика призыва: ${newPolicy}`, 'success');
+          } else {
+            terminalLog('❌ Используйте: /policy city|center', 'error');
+          }
+          break;
+        }
+
         default:
           terminalLog(`❌ Неизвестная команда: ${cmd}. Введите /help для списка.`, 'error');
+          terminalLog('  /draft             — Показать политику призыва', 'system');
+          terminalLog('  /policy city|center — Сменить политику призыва', 'system');
           break;
       }
     }

@@ -17,12 +17,14 @@ export default class AISystem {
     this.expansion = new ExpansionAI(game);
   }
 
-  update(dt) {
+    update(dt) {
+    // ИЗМЕНЕНО: ИИ не думает до старта игры (драфт не завершён).
+    if (!this.game.gameStarted) return;
+
     this.thinkTimer += dt;
     if (this.thinkTimer < AIConfig.THINK_INTERVAL) return;
     this.thinkTimer = 0;
 
-    // 1. Экономика
     this.economy.update();
 
     // 2. Оценка угроз

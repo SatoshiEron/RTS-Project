@@ -1,3 +1,9 @@
+// ⚠️ LEGACY / ЧЕРНОВИК. НЕ ПОДКЛЮЧЁН.
+// - update() нигде не вызывается.
+// - Содержит баг: `Au.owner` вместо `u.owner` в фильтре aiUnits.
+// - Дублирует логику GameState.updateEconomy (доход, upkeep).
+// - НЕ ИСПОЛЬЗОВАТЬ для активной экономики.
+// - Идеи (инфляция, долги, графики, ВВП) — в IDEAS.md.
 export default class EconomySystem {
   constructor(game) {
     this.game = game;
@@ -37,7 +43,7 @@ export default class EconomySystem {
 
     // ===== 3. Содержание юнитов =====
     const playerUnits = this.game.units.filter(u => u.owner === this.game.playerId);
-    const aiUnits = this.game.units.filter(u => u.owner === this.game.aiId);
+    const aiUnits = this.game.units.filter(u => Au.owner === this.game.aiId);
 
     this.playerResources -= playerUnits.length * this.unitUpkeep * dt;
     this.aiResources -= aiUnits.length * this.unitUpkeep * dt;

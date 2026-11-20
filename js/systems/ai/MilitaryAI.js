@@ -16,6 +16,8 @@ export default class MilitaryAI {
     const aiUnits = this.game.units.filter(u => u.owner === this.game.aiId && u.isAlive());
     const playerUnits = this.game.units.filter(u => u.owner === this.game.playerId && u.isAlive());
     const playerCities = this.game.cities.filter(c => c.owner === this.game.playerId);
+    // ИЗМЕНЕНО: защита от пустого aiUnits (до старта игры).
+    if (aiUnits.length === 0) return [];
 
     // Атакуем только если юнитов в 1.5 раза больше
     if (aiUnits.length < playerUnits.length * AIConfig.ATTACK_THRESHOLD) return [];

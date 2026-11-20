@@ -1,4 +1,5 @@
 import AIConfig from './AIConfig.js';
+import { UNIT_TYPES } from '../../entities/Unit.js';
 
 export default class EconomyAI {
   constructor(game) {
@@ -6,58 +7,158 @@ export default class EconomyAI {
   }
 
   update() {
-    const gold = this.game.aiGold;
-    const cities = this.game.cities.filter(c => c.owner === this.game.aiId);
+    const cities = this.game.cities.filter(
+      (c) => c.owner === this.game.aiId
+    );
 
-    if (gold >= AIConfig.RECRUIT_THRESHOLD) {
-      this.tryRecruit(cities);
-    }
+    if (cities.length === 0) return;
 
-    if (gold >= AIConfig.UPGRADE_THRESHOLD) {
-      this.tryUpgrade(cities);
-    }
+    this.tryRecruit(cities);
+    this.tryUpgrade(cities);
   }
 
-  tryRecruit(cities) {
+  getBudgetForCity(city) {
+    const eco = this.game.getFactionEconomy(this.game.aiId);
+    const source = eco && eco.fundingPolicy === 'center' ? 'center' : 'city';
+
+    if (source === 'center') {
+      return { source: 'center', amount: this.game.aiGold };
+    }
+
+    return { source: 'city', amount: city.resources || 0 };
+  }
+
+  // ============================================================
+  // ИЗМЕНЕНО: выбор типа формирования для города.
+  // Правила:
+  //   - Есть factory → приоритет armored (если денег много) → artillery
+  //     → motorized → infantry.
+  //   - Есть port → иногда marines (если у ИИ есть вода рядом).
+  //   - Иначе → infantry / militia.
+  // ============================================================
+  getPreferredUnitType(city) {
+    const available = this.game.getAvailableUnitTypes
+      ? this.game.getAvailableUnitTypes(city)
+      : ['infantry'];
+
+    const budget = this.getBudgetForCity(city).amount;
+
+    // Завод: танк, если хватает на него и есть запас.
+    if (available.includes('armored') && budget >= UNIT_TYPES.armored.cost * 1.5) {
+      return 'armored';
+    }
+
+    // Завод: артиллерия, если есть деньги.
+    if (available.includes('artillery') && budget >= UNIT_TYPES.artillery.cost * 1.2) {
+      return 'artillery';
+    }
+
+    // Моторизованная — быстрая, средняя цена.
+    if (available.includes('motorized') && budget >= UNIT_TYPES.motorized.cost * 1.3) {
+      return 'motorized';
+    }
+
+    // Порт: морпехи, если есть вода рядом (хотя бы одна водная провинция).
+    if (available.includes('marines') && budget >= UNIT_TYPES.marines.cost * 1.2) {
+      const hasWaterNearby = this.hasWaterNearby(city);
+      if (hasWaterNearby && Math.random() < 0.5) {
+        return 'marines';
+      }
+    }
+
+    // Дефолт — пехота.
+    return 'infantry';
+  }
+
+  // Есть ли вода в радиусе от города (для морпехов).
+  hasWaterNearby(city, radius = 0.15) {
+    const provinces = this.game.map.provinces || [];
+    for (const prov of provinces) {
+      if (prov.type !== 'water') continue;
+      if (!prov.vertices || prov.vertices.length < 3) continue;
+
+      // Проверяем центр провинции — если близко к городу.
+      let cx = 0, cy = 0;
+      for (const v of prov.vertices) { cx += v.x; cy += v.y; }
+      cx /= prov.vertices.length;
+      cy /= prov.vertices.length;
+
+      const d = Math.hypot(cx - city.x, cy - city.y);
+      if (d < radius) return true;
+    }
+    return false;
+  }
+
+    tryRecruit(cities) {
     const city = this.getBestCityForRecruit(cities);
     if (!city) return;
 
-    const hasUnit = this.game.units.some(u =>
-      u.owner === this.game.aiId &&
-      Math.abs(u.x - city.x) < 0.01 &&
-      Math.abs(u.y - city.y) < 0.01
-    );
+    const budget = this.getBudgetForCity(city);
+    if (budget.amount < AIConfig.RECRUIT_THRESHOLD) return;
 
-    if (!hasUnit) {
-      this.game.aiGold -= AIConfig.UNIT_COST;
-      this.game.spawnUnit({
-        owner: this.game.aiId,
-        x: city.x + (Math.random() - 0.5) * AIConfig.SPAWN_JITTER,
-        y: city.y + (Math.random() - 0.5) * AIConfig.SPAWN_JITTER,
-        hp: 100,
-        attack: 10,
-        defense: 5,
-        role: 'infantry'
+    const type = this.getPreferredUnitType(city);
+
+    // 1. Проверка ресурсов.
+    const stats = UNIT_TYPES[type];
+    if (stats) {
+      const resCheck = this.game.canAffordResources(this.game.aiId, {
+        ore: stats.oreCost || 0,
+        goods: stats.goodsCost || 0,
+        food: stats.foodCost || 0,
       });
-      console.log(`🤖 ИИ нанял юнита в "${city.name}"`);
+      if (!resCheck.ok) return;
+    }
+
+    // 2. Проверка людей (ИИ — политика 'center').
+    const manpowerNeed = this.game.getRecruitManpower(type);
+    const draftPlan = this.game.planDraft(city, manpowerNeed);
+    if (!draftPlan) {
+      // Не хватает людей — ИИ ждёт.
+      return;
+    }
+
+    // 3. Найм.
+    const result = this.game.tryRecruitUnit(city, type);
+
+    if (result.ok) {
+      console.log(
+        `🤖 ИИ нанял ${result.unit.typeName} #${result.unit.id} в "${city.name}" ` +
+        `(${result.cost}💰 + ${result.manpowerSpent}👥)`
+      );
+    } else if (result.reason === 'type_not_allowed') {
+      const fallback = this.game.tryRecruitUnit(city, 'infantry');
+      if (fallback.ok) {
+        console.log(`🤖 ИИ нанял fallback: ${fallback.unit.typeName} #${fallback.unit.id}`);
+      }
     }
   }
 
   tryUpgrade(cities) {
     const city = this.getBestCityForUpgrade(cities);
-    if (!city || city.level >= 5) return;
+    if (!city) return;
 
-    this.game.aiGold -= AIConfig.UPGRADE_COST;
-    city.level += 1;
-    city.population *= 1.1;
-    city.defense += 3;
-    console.log(`⬆️ ИИ улучшил "${city.name}" до ${city.level} уровня`);
+    if (!this.game.canUpgradeCity(city)) return;
+
+    const budget = this.getBudgetForCity(city);
+    if (budget.amount < AIConfig.UPGRADE_THRESHOLD) return;
+
+    const result = this.game.tryUpgradeCity(city);
+
+    if (result.ok) {
+      console.log(
+        `⬆️ ИИ улучшил "${city.name}" до ${result.newLevel} уровня ` +
+        `(${result.cost}💰 из ${result.source === 'city' ? 'города' : 'казны'})`
+      );
+    }
   }
 
   getBestCityForRecruit(cities) {
     if (!cities.length) return null;
-    // Приоритет: города на передовой (ближе к врагу)
-    const playerCities = this.game.cities.filter(c => c.owner === this.game.playerId);
+
+    const playerCities = this.game.cities.filter(
+      (c) => c.owner === this.game.playerId
+    );
+
     if (playerCities.length === 0) return cities[0];
 
     return this.findClosest(cities, playerCities[0]);
@@ -65,22 +166,24 @@ export default class EconomyAI {
 
   getBestCityForUpgrade(cities) {
     if (!cities.length) return null;
-    // Приоритет: столица или самый развитый город
-    return cities.reduce((a, b) => a.level > b.level ? a : b);
+    return cities.reduce((a, b) => (a.level > b.level ? a : b));
   }
 
   findClosest(list, ref) {
     let best = null;
     let bestDist = Infinity;
+
     for (const obj of list) {
       const dx = obj.x - ref.x;
       const dy = obj.y - ref.y;
       const dist = dx * dx + dy * dy;
+
       if (dist < bestDist) {
         bestDist = dist;
         best = obj;
       }
     }
+
     return best;
   }
 }

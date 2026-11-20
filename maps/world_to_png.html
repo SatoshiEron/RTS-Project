@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>World → PNG</title>
+
+  <style>
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Segoe UI, Arial, sans-serif;
+      color: #e8ecf5;
+      background:
+        radial-gradient(circle at top left, rgba(70, 90, 140, 0.18), transparent 40%),
+        #080b12;
+      padding: 24px;
+    }
+
+    .app { width: min(1200px, 100%); margin: 0 auto; }
+
+    .panel {
+      background: rgba(20, 25, 36, 0.78);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 16px;
+      padding: 18px;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+      box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+    }
+
+    h1 { margin: 0 0 16px; font-size: 21px; font-weight: 600; }
+    h3 { margin: 16px 0 8px; font-size: 13px; color: #a8b4cc; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: end;
+    }
+
+    .field { display: flex; flex-direction: column; gap: 5px; }
+
+    label { font-size: 12px; color: #8f99ad; }
+
+    input[type="file"],
+    input[type="number"] {
+      color: #dce2ef;
+      background: rgba(10, 14, 22, 0.8);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 9px;
+      padding: 9px;
+    }
+
+    input[type="number"] { width: 100px; }
+    input[type="file"] { width: 230px; }
+
+    button {
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      border-radius: 9px;
+      padding: 10px 14px;
+      color: #edf2ff;
+      background: rgba(45, 53, 70, 0.85);
+      cursor: pointer;
+      font-size: 14px;
+    }
+
+    button:hover { background: rgba(60, 70, 92, 0.95); }
+
+    .download { background: rgba(44, 112, 82, 0.85); }
+    .download:hover { background: rgba(54, 135, 96, 0.95); }
+
+    .toggle {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      font-size: 13px;
+      color: #c7cfe0;
+      cursor: pointer;
+      user-select: none;
+      padding: 8px 0;
+    }
+
+    .toggle input { width: 16px; height: 16px; accent-color: #55aa66; cursor: pointer; }
+
+    .sliders { display: flex; flex-wrap: wrap; gap: 16px; margin-top: 8px; }
+    .slider-field { display: flex; flex-direction: column; gap: 4px; min-width: 150px; }
+    .slider-field label { font-size: 12px; color: #8f99ad; display: flex; justify-content: space-between; }
+    .slider-field label b { color: #dce2ef; font-weight: 600; }
+    .slider-field input[type="range"] { width: 100%; accent-color: #4a9eff; }
+
+    .status {
+      margin-top: 14px;
+      padding: 10px 12px;
+      border-radius: 9px;
+      background: rgba(8, 12, 20, 0.65);
+      color: #aeb8ca;
+      font-size: 13px;
+    }
+
+    .canvas-wrap {
+      margin-top: 18px;
+      overflow: auto;
+      border-radius: 14px;
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      background: #0a0d14;
+      padding: 10px;
+    }
+
+    canvas {
+      display: block;
+      width: 100%;
+      height: auto;
+      background: #0a0d14;
+      border-radius: 8px;
+    }
+
+    .hint { margin-top: 10px; color: #69748a; font-size: 12px; }
+  </style>
+</head>
+
+<body>
+<div class="app">
+
+  <div class="panel">
+    <h1>🗺️ World → PNG</h1>
+
+    <div class="controls">
+
+      <div class="field">
+        <label for="worldInput">world.json</label>
+        <input id="worldInput" type="file" accept=".json,application/json">
+      </div>
+
+      <div class="field">
+        <label for="pngInput">PNG-подложка</label>
+        <input id="pngInput" type="file" accept="image/png,image/*">
+      </div>
+
+      <div class="field">
+        <label for="widthInput">Ширина</label>
+        <input id="widthInput" type="number" min="1" value="1920">
+      </div>
+
+      <div class="field">
+        <label for="heightInput">Высота</label>
+        <input id="heightInput" type="number" min="1" value="1080">
+      </div>
+
+      <button id="renderBtn">🔄 Перерисовать</button>
+      <button id="downloadBtn" class="download">📥 Скачать PNG</button>
+
+    </div>
+
+    <label class="toggle">
+      <input type="checkbox" id="textureToggle" checked>
+      🌿 Процедурный ландшафт (биомы + рельеф)
+    </label>
+
+    <h3>Параметры ландшафта</h3>
+    <div class="sliders">
+
+      <div class="slider-field">
+        <label for="seedInput">Seed <b id="seedValue">1337</b></label>
+        <input id="seedInput" type="number" min="0" max="999999" value="1337">
+      </div>
+
+      <div class="slider-field">
+        <label for="detailInput">Детализация рельефа <b id="detailValue">0.6</b></label>
+        <input id="detailInput" type="range" min="0" max="1" step="0.05" value="0.6">
+      </div>
+
+      <div class="slider-field">
+        <label for="biomesInput">Плотность биомов <b id="biomesValue">0.7</b></label>
+        <input id="biomesInput" type="range" min="0" max="1" step="0.05" value="0.7">
+      </div>
+
+      <div class="slider-field">
+        <label for="reliefInput">Выраженность рельефа <b id="reliefValue">0.5</b></label>
+        <input id="reliefInput" type="range" min="0" max="1" step="0.05" value="0.5">
+      </div>
+
+    </div>
+
+    <div id="status" class="status">
+      📋 Ожидание world.json
+    </div>
+
+    <div class="canvas-wrap">
+      <canvas id="mapCanvas" width="1920" height="1080"></canvas>
+    </div>
+
+    <div class="hint">
+      Координаты world.json должны быть нормализованы в диапазоне 0..1.
+    </div>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+// ============================================================
+//  СОСТОЯНИЕ
+// ============================================================
+
+const canvas = document.getElementById("mapCanvas");
+const ctx = canvas.getContext("2d");
+
+const worldInput = document.getElementById("worldInput");
+const pngInput = document.getElementById("pngInput");
+
+const widthInput = document.getElementById("widthInput");
+const heightInput = document.getElementById("heightInput");
+
+const renderBtn = document.getElementById("renderBtn");
+const downloadBtn = document.getElementById("downloadBtn");
+
+const statusEl = document.getElementById("status");
+
+const textureToggle = document.getElementById("textureToggle");
+
+const seedInput = document.getElementById("seedInput");
+const seedValue = document.getElementById("seedValue");
+const detailInput = document.getElementById("detailInput");
+const detailValue = document.getElementById("detailValue");
+const biomesInput = document.getElementById("biomesInput");
+const biomesValue = document.getElementById("biomesValue");
+const reliefInput = document.getElementById("reliefInput");
+const reliefValue = document.getElementById("reliefValue");
+
+let worldData = {
+  points: [],
+  roads: [],
+  provinces: []
+};
+
+let backgroundImage = null;
+
+// ============================================================
+//  КЭШИ ЛАНДШАФТА
+// ============================================================
+
+// Кэш биомов — пересчитывается только при смене параметров/размера.
+let _biomeCache = {
+  key: "",
+  layer: null   // HTMLCanvasElement
+};
+
+// Кэш рельефа (затенение + контуры + хребты).
+let _reliefCache = {
+  key: "",
+  layer: null
+};
+
+// ============================================================
+//  СТАТУС
+// ============================================================
+
+function setStatus(text) {
+  statusEl.textContent = text;
+}
+
+function updateStatus() {
+  setStatus(
+    `📋 Загружено провинций: ${worldData.provinces.length}, ` +
+    `точек: ${worldData.points.length}`
+  );
+}
+
+// ============================================================
+//  РАЗМЕР CANVAS
+// ============================================================
+
+function updateCanvasSize() {
+  const width = Math.max(1, Number(widthInput.value) || 1920);
+  const height = Math.max(1, Number(heightInput.value) || 1080);
+
+  canvas.width = width;
+  canvas.height = height;
+
+  // Сброс кэшей при смене размера.
+  _biomeCache.key = "";
+  _reliefCache.key = "";
+
+  console.log(`📐 Размер canvas: ${width}×${height}`);
+
+  redraw();
+}
+
+// ============================================================
+//  НОРМАЛИЗОВАННЫЕ КООРДИНАТЫ
+// ============================================================
+
+function worldToScreen(x, y) {
+  return {
+    x: x * canvas.width,
+    y: y * canvas.height
+  };
+}
+
+// ============================================================
+//  ПОИСК ТОЧКИ ПО ID
+// ============================================================
+
+function getPointById(id) {
+  return worldData.points.find(point => point.id === id) || null;
+}
+
+// ============================================================
+//  ПОЛУЧЕНИЕ ВЕРШИН ПРОВИНЦИИ
+// ============================================================
+
+function getProvinceVertices(province) {
+  if (Array.isArray(province.vertices)) {
+    return province.vertices.filter(vertex =>
+      vertex &&
+      Number.isFinite(Number(vertex.x)) &&
+      Number.isFinite(Number(vertex.y))
+    );
+  }
+
+  if (Array.isArray(province.vertexIds)) {
+    const vertices = [];
+    for (const id of province.vertexIds) {
+      const point = getPointById(id);
+      if (!point) {
+        console.warn(`⚠️ Провинция #${province.id}: точка #${id} не найдена`);
+        continue;
+      }
+      if (!Number.isFinite(Number(point.x)) || !Number.isFinite(Number(point.y))) {
+        console.warn(`⚠️ Точка #${id} содержит некорректные координаты`);
+        continue;
+      }
+      vertices.push({ x: Number(point.x), y: Number(point.y) });
+    }
+    return vertices;
+  }
+
+  return [];
+}
+
+// ============================================================
+//  ФОН
+// ============================================================
+
+function drawBackground() {
+  if (backgroundImage) {
+    ctx.drawImage(backgroundImage, 0, 0, canvas.width, canvas.height);
+    return;
+  }
+
+  // ИЗМЕНЕНО: глубокий тёмно-синий фон, если нет PNG.
+  ctx.fillStyle = "#0a1428";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+}
+
+// ============================================================
+//  ИЗМЕНЕНО: детерминированный шум (seed-based)
+// ============================================================
+
+// Быстрый 2D hash на основе sin. Не идеален, но детерминирован и быстр.
+function hash2D(x, y, seed) {
+  const s = Math.sin(x * 127.1 + y * 311.7 + seed * 74.7) * 43758.5453;
+  return s - Math.floor(s);
+}
+
+// Value-noise: плавная интерполяция между углами ячейки.
+function noise2D(x, y, seed) {
+  const xi = Math.floor(x);
+  const yi = Math.floor(y);
+  const xf = x - xi;
+  const yf = y - yi;
+
+  // Smoothstep
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+
+  const a = hash2D(xi, yi, seed);
+  const b = hash2D(xi + 1, yi, seed);
+  const c = hash2D(xi, yi + 1, seed);
+  const d = hash2D(xi + 1, yi + 1, seed);
+
+  return (a * (1 - u) + b * u) * (1 - v) + (c * (1 - u) + d * u) * v;
+}
+
+// fBm: несколько октав шума → естественные «облачные» структуры.
+function fbm2D(x, y, seed, octaves = 4, persistence = 0.5, lacunarity = 2) {
+  let value = 0;
+  let amplitude = 1;
+  let frequency = 1;
+  let maxValue = 0;
+
+  for (let i = 0; i < octaves; i++) {
+    value += amplitude * noise2D(x * frequency, y * frequency, seed + i * 17);
+    maxValue += amplitude;
+    amplitude *= persistence;
+    frequency *= lacunarity;
+  }
+
+  return value / maxValue;
+}
+
+// ============================================================
+//  ИЗМЕНЕНО: ВОДА — многослойная
+// ============================================================
+
+// Draw water provinces с глубиной, мелководьем и берегом.
+function drawWaterProvinces() {
+  const waterProvinces = worldData.provinces.filter(p => p.type === "water");
+  if (waterProvinces.length === 0) return;
+
+  // ---- Слой 1: глубокий фон всей воды ----
+  ctx.save();
+
+  for (const prov of waterProvinces) {
+    const vertices = getProvinceVertices(prov);
+    if (vertices.length < 3) continue;
+
+    ctx.beginPath();
+    vertices.forEach((v, i) => {
+      const p = worldToScreen(Number(v.x), Number(v.y));
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+
+    // Радиальный градиент от центра провинции (грубо — по bbox).
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const v of vertices) {
+      const p = worldToScreen(Number(v.x), Number(v.y));
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const r = Math.max(maxX - minX, maxY - minY) * 0.7;
+
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+    g.addColorStop(0, "#1e4d7a");        // глубокий центр
+    g.addColorStop(0.55, "#256b9e");      // середина
+    g.addColorStop(1, "#3a8ab8");         // ближе к краям — светлее
+
+    ctx.fillStyle = g;
+    ctx.fill();
+  }
+
+  ctx.restore();
+
+  // ---- Слой 2: мелководье у берегов (drawStroke внутри полигона) ----
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+
+  for (const prov of waterProvinces) {
+    const vertices = getProvinceVertices(prov);
+    if (vertices.length < 3) continue;
+
+    ctx.beginPath();
+    vertices.forEach((v, i) => {
+      const p = worldToScreen(Number(v.x), Number(v.y));
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+
+    // Клип по полигону + обводка внутрь = мелководье по краям.
+    ctx.save();
+    ctx.clip();
+
+    ctx.strokeStyle = "rgba(120, 200, 240, 0.18)";
+    ctx.lineWidth = 24;
+    ctx.lineJoin = "round";
+    ctx.stroke();
+
+    ctx.strokeStyle = "rgba(160, 220, 255, 0.12)";
+    ctx.lineWidth = 12;
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+
+  // ---- Слой 3: мягкие блики на поверхности ----
+  ctx.save();
+
+  for (const prov of waterProvinces) {
+    const vertices = getProvinceVertices(prov);
+    if (vertices.length < 3) continue;
+
+    // Ограничим bbox.
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    for (const v of vertices) {
+      const p = worldToScreen(Number(v.x), Number(v.y));
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.y > maxY) maxY = p.y;
+    }
+
+    ctx.save();
+    ctx.beginPath();
+    vertices.forEach((v, i) => {
+      const p = worldToScreen(Number(v.x), Number(v.y));
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+    ctx.clip();
+
+    const step = 60;
+    const seed = Number(seedInput.value) || 1337;
+
+    for (let y = minY; y < maxY; y += step) {
+      for (let x = minX; x < maxX; x += step) {
+        const wx = x / canvas.width;
+        const wy = y / canvas.height;
+        const n = fbm2D(wx * 8, wy * 8, seed + 101, 3, 0.5);
+
+        if (n > 0.55) {
+          const r = 18 + n * 20;
+          const grad = ctx.createRadialGradient(x, y, 0, x, y, r);
+          grad.addColorStop(0, `rgba(180, 220, 255, ${(n - 0.55) * 0.4})`);
+          grad.addColorStop(1, "rgba(180, 220, 255, 0)");
+          ctx.fillStyle = grad;
+          ctx.beginPath();
+          ctx.arc(x, y, r, 0, Math.PI * 2);
+          ctx.fill();
+        }
+      }
+    }
+
+    ctx.restore();
+  }
+
+  ctx.restore();
+}
+
+// ============================================================
+//  ИЗМЕНЕНО: СУША — базовый слой с высотным градиентом
+// ============================================================
+
+function drawLandBase() {
+  const landProvinces = worldData.provinces.filter(p => p.type === "land");
+  if (landProvinces.length === 0) return;
+
+  ctx.save();
+
+  // Единый путь всех land-полигонов — clip.
+  ctx.beginPath();
+  let anyValid = false;
+
+  for (const prov of landProvinces) {
+    const vertices = getProvinceVertices(prov);
+    if (vertices.length < 3) continue;
+    anyValid = true;
+
+    vertices.forEach((v, i) => {
+      const p = worldToScreen(Number(v.x), Number(v.y));
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+  }
+
+  if (!anyValid) {
+    ctx.restore();
+    return;
+  }
+
+  ctx.clip();
+
+  // Базовый цвет суши.
+  ctx.fillStyle = "#6d8a52";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Высотный градиент: пятна светлее/темнее в зависимости от fbm.
+  const seed = Number(seedInput.value) || 1337;
+  const step = 40;
+
+  for (let y = 0; y < canvas.height; y += step) {
+    for (let x = 0; x < canvas.width; x += step) {
+      const wx = x / canvas.width;
+      const wy = y / canvas.height;
+      const n = fbm2D(wx * 3, wy * 3, seed + 211, 4, 0.55);
+
+      // n ~ 0..1. Светлее на возвышенностях, темнее в низинах.
+      const t = (n - 0.4) * 2;  // -0.8..1.2
+      const r = 109 + t * 25;
+      const g = 138 + t * 28;
+      const b = 82 + t * 18;
+
+      const rad = 60;
+      const grad = ctx.createRadialGradient(x, y, 0, x, y, rad);
+      grad.addColorStop(0, `rgba(${r|0}, ${g|0}, ${b|0}, 0.18)`);
+      grad.addColorStop(1, `rgba(${r|0}, ${g|0}, ${b|0}, 0)`);
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(x, y, rad, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  ctx.restore();
+}
+
+// ============================================================
+//  ИЗМЕНЕНО: БИОМЫ — через ImageData
+// ============================================================
+
+function _buildBiomeLayer() {
+  const seed = Number(seedInput.value) || 1337;
+  const density = Number(biomesInput.value);
+  const detail = Number(detailInput.value);
+
+  const key = `${canvas.width}x${canvas.height}|${seed}|${density}|${detail}`;
+  if (_biomeCache.key === key && _biomeCache.layer) {
+    return _biomeCache.layer;
+  }
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  // Кэш слоя биомов.
+  let layer = _biomeCache.layer;
+  if (!layer || layer.width !== W || layer.height !== H) {
+    layer = document.createElement("canvas");
+    layer.width = W;
+    layer.height = H;
+  }
+  const lctx = layer.getContext("2d");
+  lctx.clearRect(0, 0, W, H);
+
+  const img = lctx.createImageData(W, H);
+  const data = img.data;
+
+  // Цвета биомов (RGBA 0..255).
+  const FOREST = [34, 68, 42];
+  const FIELD  = [168, 148, 82];
+  const MOUNT  = [130, 118, 105];
+  const PLAIN  = [0, 0, 0]; // не рисуем
+
+  // Пороги (зависят от density).
+  const fTh = 0.56 - density * 0.12;
+  const aTh = 0.52 - density * 0.10;
+  const mTh = 0.62 - density * 0.10;
+
+  // Частота (зависит от detail — влияет только на мелкость).
+  const fFreq = 3.0 + detail * 2.0;
+  const aFreq = 2.5 + detail * 1.5;
+  const mFreq = 4.0 + detail * 2.5;
+
+  // Проходим по уменьшенной сетке (шаг 2 пикселя) — быстрее, а затем 
+  // drawImage с масштабом сгладит. Для 1920×1080 шаг 2 = ~0.5M сэмплов.
+  const STEP = 2;
+
+  for (let y = 0; y < H; y += STEP) {
+    for (let x = 0; x < W; x += STEP) {
+      const wx = x / W;
+      const wy = y / H;
+
+      // Приоритет: горы > лес > поле > земля.
+      const m = fbm2D(wx * mFreq, wy * mFreq, seed + 37, 4, 0.55);
+      const f = fbm2D(wx * fFreq, wy * fFreq, seed + 11, 4, 0.55);
+      const a = fbm2D(wx * aFreq, wy * aFreq, seed + 23, 3, 0.50);
+
+      let color = null;
+      let alpha = 0;
+
+      if (m > mTh) {
+        color = MOUNT;
+        alpha = (m - mTh) * 4;  // 0..~0.4
+      } else if (f > fTh) {
+        color = FOREST;
+        alpha = (f - fTh) * 3.5;
+      } else if (a > aTh) {
+        color = FIELD;
+        alpha = (a - aTh) * 3.0;
+      }
+
+      if (!color) continue;
+
+      // Ограничим альфу.
+      if (alpha > 0.55) alpha = 0.55;
+      alpha = Math.round(alpha * 255);
+
+      // Заливаем пиксели блока STEP×STEP.
+      for (let dy = 0; dy < STEP && y + dy < H; dy++) {
+        for (let dx = 0; dx < STEP && x + dx < W; dx++) {
+          const idx = ((y + dy) * W + (x + dx)) * 4;
+          data[idx]     = color[0];
+          data[idx + 1] = color[1];
+          data[idx + 2] = color[2];
+          data[idx + 3] = alpha;
+        }
+      }
+    }
+  }
+
+  lctx.putImageData(img, 0, 0);
+
+  _biomeCache.key = key;
+  _biomeCache.layer = layer;
+  return layer;
+}
+
+function drawBiomes() {
+  const landProvinces = worldData.provinces.filter(p => p.type === "land");
+  if (landProvinces.length === 0) return;
+
+  const layer = _buildBiomeLayer();
+
+  ctx.save();
+
+  // Clip по union всех land-полигонов.
+  ctx.beginPath();
+  let anyValid = false;
+  for (const prov of landProvinces) {
+    const vertices = getProvinceVertices(prov);
+    if (vertices.length < 3) continue;
+    anyValid = true;
+    vertices.forEach((v, i) => {
+      const p = worldToScreen(Number(v.x), Number(v.y));
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+  }
+
+  if (!anyValid) {
+    ctx.restore();
+    return;
+  }
+
+  ctx.clip();
+
+  // Рисуем биом-слой поверх (с масштабом 1:1).
+  ctx.drawImage(layer, 0, 0);
+
+  ctx.restore();
+}
+
+// ============================================================
+//  ИЗМЕНЕНО: РЕЛЬЕФ — затенение, контуры, хребты
+// ============================================================
+
+function _buildReliefLayer() {
+  const seed = Number(seedInput.value) || 1337;
+  const relief = Number(reliefInput.value);
+  const detail = Number(detailInput.value);
+
+  const key = `${canvas.width}x${canvas.height}|${seed}|${relief}|${detail}`;
+  if (_reliefCache.key === key && _reliefCache.layer) {
+    return _reliefCache.layer;
+  }
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  let layer = _reliefCache.layer;
+  if (!layer || layer.width !== W || layer.height !== H) {
+    layer = document.createElement("canvas");
+    layer.width = W;
+    layer.height = H;
+  }
+  const lctx = layer.getContext("2d");
+  lctx.clearRect(0, 0, W, H);
+
+  if (relief <= 0.02) {
+    // Пусто — ничего не рисуем.
+    _reliefCache.key = key;
+    _reliefCache.layer = layer;
+    return layer;
+  }
+
+  // Частота высот.
+  const hFreq = 1.8 + detail * 1.5;
+
+  // Сетка высот — пониженное разрешение для быстроты.
+  const G = 160;
+  const elev = new Float32Array(G * G);
+
+  for (let gy = 0; gy < G; gy++) {
+    for (let gx = 0; gx < G; gx++) {
+      const wx = gx / G;
+      const wy = gy / G;
+      elev[gy * G + gx] = fbm2D(wx * hFreq, wy * hFreq, seed + 53, 4, 0.55);
+    }
+  }
+
+  // Слой затенения склонов через ImageData (полное разрешение).
+  const img = lctx.createImageData(W, H);
+  const data = img.data;
+
+  const STEP = 3;
+  const lightDirX = -0.7;
+  const lightDirY = -0.7;
+  const lightDirLen = Math.hypot(lightDirX, lightDirY);
+  const lx = lightDirX / lightDirLen;
+  const ly = lightDirY / lightDirLen;
+
+  for (let y = 0; y < H; y += STEP) {
+    for (let x = 0; x < W; x += STEP) {
+      const gx = Math.floor((x / W) * (G - 1));
+      const gy = Math.floor((y / H) * (G - 1));
+
+      const h = elev[gy * G + gx];
+      const hL = gx > 0 ? elev[gy * G + (gx - 1)] : h;
+      const hR = gx < G - 1 ? elev[gy * G + (gx + 1)] : h;
+      const hU = gy > 0 ? elev[(gy - 1) * G + gx] : h;
+      const hD = gy < G - 1 ? elev[(gy + 1) * G + gx] : h;
+
+      const dx = (hR - hL) * 2.0;
+      const dy = (hD - hU) * 2.0;
+
+      // Простая «нормаль» (2D) — dot с направлением света.
+      const shade = 0.5 + 0.5 * (lx * dx + ly * dy) * 4.0;
+
+      const sClamped = Math.max(0, Math.min(1, shade));
+      const alpha = Math.round(Math.abs(sClamped - 0.5) * 2 * relief * 70);
+
+      if (alpha < 3) continue;
+
+      const isDark = sClamped < 0.5;
+      const c = isDark ? 20 : 240;
+
+      for (let dy2 = 0; dy2 < STEP && y + dy2 < H; dy2++) {
+        for (let dx2 = 0; dx2 < STEP && x + dx2 < W; dx2++) {
+          const idx = ((y + dy2) * W + (x + dx2)) * 4;
+          data[idx]     = c;
+          data[idx + 1] = c;
+          data[idx + 2] = c;
+          data[idx + 3] = alpha;
+        }
+      }
+    }
+  }
+
+  lctx.putImageData(img, 0, 0);
+
+  // ---- Контурные линии (изолинии высот) ----
+  lctx.save();
+  lctx.strokeStyle = `rgba(60, 50, 40, ${relief * 0.15})`;
+  lctx.lineWidth = 1;
+
+  const stepH = 0.08; // шаг изолиний по высоте
+
+  for (let gy = 0; gy < G - 1; gy++) {
+    for (let gx = 0; gx < G - 1; gx++) {
+      const h00 = elev[gy * G + gx];
+      const h10 = elev[gy * G + (gx + 1)];
+      const h01 = elev[(gy + 1) * G + gx];
+      const h11 = elev[(gy + 1) * G + (gx + 1)];
+
+      // Проверяем каждую из 4 граней ячейки: пересекает ли она уровень.
+      const checkLevel = (hA, hB, ax, ay, bx, by) => {
+        const lvA = Math.floor(hA / stepH);
+        const lvB = Math.floor(hB / stepH);
+        if (lvA === lvB) return;
+
+        const t = (Math.floor(hA / stepH) * stepH + (lvA < lvB ? stepH : -stepH) - hA) / (hB - hA);
+        if (t < 0 || t > 1) return;
+
+        const x1 = ax + (bx - ax) * t;
+        const y1 = ay + (by - ay) * t;
+
+        lctx.beginPath();
+        lctx.moveTo(x1, y1);
+        lctx.lineTo(x1 + 2, y1 + 2);
+        lctx.stroke();
+      };
+
+      const px = gx / G * W;
+      const py = gy / G * H;
+      const px1 = (gx + 1) / G * W;
+      const py1 = (gy + 1) / G * H;
+
+      checkLevel(h00, h10, px, py, px1, py);
+      checkLevel(h00, h01, px, py, px, py1);
+    }
+  }
+
+  lctx.restore();
+
+  _reliefCache.key = key;
+  _reliefCache.layer = layer;
+  return layer;
+}
+
+function drawRelief() {
+  const landProvinces = worldData.provinces.filter(p => p.type === "land");
+  if (landProvinces.length === 0) return;
+
+  const relief = Number(reliefInput.value);
+  if (relief <= 0.02) return;
+
+  const layer = _buildReliefLayer();
+
+  ctx.save();
+
+  ctx.beginPath();
+  let anyValid = false;
+  for (const prov of landProvinces) {
+    const vertices = getProvinceVertices(prov);
+    if (vertices.length < 3) continue;
+    anyValid = true;
+    vertices.forEach((v, i) => {
+      const p = worldToScreen(Number(v.x), Number(v.y));
+      if (i === 0) ctx.moveTo(p.x, p.y);
+      else ctx.lineTo(p.x, p.y);
+    });
+    ctx.closePath();
+  }
+
+  if (!anyValid) {
+    ctx.restore();
+    return;
+  }
+
+  ctx.clip();
+  ctx.drawImage(layer, 0, 0);
+
+  ctx.restore();
+}
+
+// ============================================================
+//  СТАРЫЙ СЛОЙ (если textureToggle выключен)
+// ============================================================
+
+function drawProvince(province, fillColor) {
+  const vertices = getProvinceVertices(province);
+  if (vertices.length < 3) {
+    console.warn(`⚠️ Провинция #${province.id ?? "?"} пропущена: недостаточно вершин`);
+    return;
+  }
+
+  ctx.beginPath();
+  vertices.forEach((vertex, index) => {
+    const point = worldToScreen(Number(vertex.x), Number(vertex.y));
+    if (index === 0) ctx.moveTo(point.x, point.y);
+    else ctx.lineTo(point.x, point.y);
+  });
+  ctx.closePath();
+
+  ctx.fillStyle = fillColor;
+  ctx.fill();
+
+  ctx.strokeStyle = "#2a3347";
+  ctx.lineWidth = 1;
+  ctx.stroke();
+}
+
+function drawProvincesFlat() {
+  for (const province of worldData.provinces) {
+    if (province.type !== "water") continue;
+    drawProvince(province, "rgba(58, 123, 213, 0.72)");
+  }
+  for (const province of worldData.provinces) {
+    if (province.type !== "land") continue;
+    drawProvince(province, "#7a9a5a");
+  }
+}
+
+// ============================================================
+//  ПРОВИНЦИИ — точка входа
+// ============================================================
+
+function drawProvinces() {
+  if (!textureToggle.checked) {
+    // Старый плоский вид — для сравнения.
+    drawProvincesFlat();
+    drawProvinceBorders();
+    return;
+  }
+
+  // Новый процедурный ландшафт.
+  drawWaterProvinces();  // этап 1: вода
+  drawLandBase();        // этап 1: суша
+  drawBiomes();          // этап 2: биомы
+  drawRelief();          // этап 3: рельеф
+
+  drawProvinceBorders();
+}
+
+// ============================================================
+//  ГРАНИЦЫ ПРОВИНЦИЙ
+// ============================================================
+
+function drawProvinceBorders() {
+  for (const province of worldData.provinces) {
+    const vertices = getProvinceVertices(province);
+    if (vertices.length < 3) continue;
+
+    ctx.beginPath();
+    vertices.forEach((vertex, index) => {
+      const point = worldToScreen(Number(vertex.x), Number(vertex.y));
+      if (index === 0) ctx.moveTo(point.x, point.y);
+      else ctx.lineTo(point.x, point.y);
+    });
+    ctx.closePath();
+
+    // ИЗМЕНЕНО: чуть приглушённый контур — не перебивает ландшафт.
+    ctx.strokeStyle = province.type === "water"
+      ? "rgba(140, 180, 220, 0.35)"
+      : "rgba(30, 34, 42, 0.55)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([]);
+    ctx.stroke();
+  }
+}
+
+// ============================================================
+//  ПОЛУЧЕНИЕ ТОЧЕК ДОРОГИ
+// ============================================================
+
+function getRoadPoints(road) {
+  if (!Array.isArray(road.pointIds)) return [];
+  return road.pointIds.map(id => getPointById(id));
+}
+
+// ============================================================
+//  ОТРИСОВКА ОДНОГО СЕГМЕНТА
+// ============================================================
+
+function drawSegment(a, b) {
+  if (!a || !b) return;
+  if (
+    !Number.isFinite(Number(a.x)) || !Number.isFinite(Number(a.y)) ||
+    !Number.isFinite(Number(b.x)) || !Number.isFinite(Number(b.y))
+  ) return;
+
+  const p1 = worldToScreen(Number(a.x), Number(a.y));
+  const p2 = worldToScreen(Number(b.x), Number(b.y));
+
+  ctx.beginPath();
+  ctx.moveTo(p1.x, p1.y);
+  ctx.lineTo(p2.x, p2.y);
+  ctx.stroke();
+}
+
+// ============================================================
+//  ДОРОГИ / ЖД / РЕКИ (не тронуто — этап 4)
+// ============================================================
+
+function drawRoads() {
+  for (const road of worldData.roads) {
+    const points = getRoadPoints(road);
+    if (points.length < 2) continue;
+
+    const type = road.type;
+
+    if (type === "road") {
+      ctx.save();
+      ctx.strokeStyle = "#888";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([]);
+      for (let i = 0; i < points.length - 1; i++) {
+        drawSegment(points[i], points[i + 1]);
+      }
+      ctx.restore();
+    } else if (type === "rail") {
+      ctx.save();
+      ctx.strokeStyle = "#ffcc00";
+      ctx.lineWidth = 2;
+      ctx.setLineDash([7, 5]);
+      for (let i = 0; i < points.length - 1; i++) {
+        drawSegment(points[i], points[i + 1]);
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    } else if (type === "river") {
+      ctx.save();
+      ctx.strokeStyle = "#3399ff";
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([6, 4]);
+      for (let i = 0; i < points.length - 1; i++) {
+        drawSegment(points[i], points[i + 1]);
+      }
+      ctx.setLineDash([]);
+      ctx.restore();
+    }
+  }
+}
+
+// ============================================================
+//  ГОРОДА (не тронуто — этап 4)
+// ============================================================
+
+const cityStyles = {
+  city:     { icon: "🏙", color: "#3388ff" },
+  port:     { icon: "⚓", color: "#44aa66" },
+  airfield: { icon: "🛩", color: "#ff77aa" },
+  farm:     { icon: "🌾", color: "#aa7733" },
+  mine:     { icon: "⛏", color: "#888888" },
+  factory:  { icon: "🏭", color: "#9955cc" },
+  trade:    { icon: "💰", color: "#e0ad24" }
+};
+
+function drawCity(point) {
+  const x = Number(point.x);
+  const y = Number(point.y);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    console.warn(`⚠️ Город #${point.id ?? "?"}: некорректные координаты`);
+    return;
+  }
+
+  const screen = worldToScreen(x, y);
+  const cityType = point.cityType || "city";
+  const style = cityStyles[cityType] || cityStyles.city;
+
+  ctx.save();
+
+  ctx.beginPath();
+  ctx.arc(screen.x, screen.y, 12, 0, Math.PI * 2);
+  ctx.fillStyle = style.color;
+  ctx.globalAlpha = 0.9;
+  ctx.fill();
+
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = "#111827";
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  ctx.font = "15px Segoe UI Emoji, Apple Color Emoji, sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(style.icon, screen.x, screen.y);
+
+  ctx.restore();
+}
+
+function drawCities() {
+  for (const point of worldData.points) {
+    if (!point.isCity) continue;
+    drawCity(point);
+  }
+}
+
+// ============================================================
+//  ПОЛНАЯ ОТРИСОВКА
+// ============================================================
+
+function redraw() {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  drawBackground();
+  drawProvinces();
+  drawRoads();
+  drawCities();
+
+  console.log("🎨 Карта перерисована");
+}
+
+// ============================================================
+//  ЗАГРУЗКА WORLD.JSON
+// ============================================================
+
+worldInput.addEventListener("change", event => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+
+  reader.onload = function(e) {
+    try {
+      const text = e.target.result;
+
+      if (!text || !text.trim()) {
+        console.warn("⚠️ world.json пустой");
+        worldData = { points: [], roads: [], provinces: [] };
+        updateStatus();
+        redraw();
+        return;
+      }
+
+      const data = JSON.parse(text);
+      if (!data || typeof data !== "object") {
+        throw new Error("world.json должен содержать JSON-объект");
+      }
+
+      worldData = {
+        points:    Array.isArray(data.points)    ? data.points    : [],
+        roads:     Array.isArray(data.roads)     ? data.roads     : [],
+        provinces: Array.isArray(data.provinces) ? data.provinces : []
+      };
+
+      // Сброс кэшей — новая карта.
+      _biomeCache.key = "";
+      _reliefCache.key = "";
+
+      console.log("📥 world.json загружен");
+      console.log(`📍 Точек: ${worldData.points.length}`);
+      console.log(`🛣️ Дорог: ${worldData.roads.length}`);
+      console.log(`🗺️ Провинций: ${worldData.provinces.length}`);
+
+      updateStatus();
+      redraw();
+
+    } catch (error) {
+      console.error("❌ Ошибка загрузки world.json:", error);
+      setStatus(`❌ Ошибка world.json: ${error.message}`);
+    }
+  };
+
+  reader.onerror = function() {
+    console.error("❌ Не удалось прочитать world.json");
+    setStatus("❌ Не удалось прочитать world.json");
+  };
+
+  reader.readAsText(file);
+  event.target.value = "";
+});
+
+// ============================================================
+//  ЗАГРУЗКА PNG-ПОДЛОЖКИ
+// ============================================================
+
+pngInput.addEventListener("change", event => {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+
+  reader.onload = function(e) {
+    const image = new Image();
+
+    image.onload = function() {
+      backgroundImage = image;
+      console.log("🖼️ PNG-подложка загружена");
+      console.log(`📐 Размер PNG: ${image.width}×${image.height}`);
+      redraw();
+    };
+
+    image.onerror = function() {
+      backgroundImage = null;
+      console.error("❌ Не удалось загрузить PNG-подложку");
+      setStatus("❌ Не удалось загрузить PNG-подложку");
+      redraw();
+    };
+
+    image.src = e.target.result;
+  };
+
+  reader.onerror = function() {
+    console.error("❌ Не удалось прочитать PNG-подложку");
+  };
+
+  reader.readAsDataURL(file);
+  event.target.value = "";
+});
+
+// ============================================================
+//  ПЕРЕРИСОВКА
+// ============================================================
+
+renderBtn.addEventListener("click", () => {
+  updateCanvasSize();
+});
+
+// ============================================================
+//  СКАЧИВАНИЕ PNG
+// ============================================================
+
+downloadBtn.addEventListener("click", () => {
+  try {
+    const link = document.createElement("a");
+    link.download = "world_map.png";
+    link.href = canvas.toDataURL("image/png");
+    link.click();
+    console.log("📥 PNG экспортирован");
+  } catch (error) {
+    console.error("❌ Ошибка экспорта PNG:", error);
+    setStatus(`❌ Ошибка экспорта PNG: ${error.message}`);
+  }
+});
+
+// ============================================================
+//  ИЗМЕНЕНИЕ РАЗМЕРА
+// ============================================================
+
+widthInput.addEventListener("change", updateCanvasSize);
+heightInput.addEventListener("change", updateCanvasSize);
+
+// ============================================================
+//  ПЕРЕКЛЮЧАТЕЛЬ ТЕКСТУРЫ
+// ============================================================
+
+textureToggle.addEventListener("change", () => {
+  redraw();
+});
+
+// ============================================================
+//  СЛАЙДЕРЫ
+// ============================================================
+
+function _bindSlider(input, valueEl, onChange) {
+  const update = () => {
+    valueEl.textContent = input.value;
+    onChange();
+  };
+  input.addEventListener("input", update);
+}
+
+_bindSlider(seedInput, seedValue, () => {
+  // Seed — не слайдер, но number. Просто перерисовываем.
+  seedValue.textContent = seedInput.value;
+  redraw();
+});
+
+_bindSlider(detailInput, detailValue, () => {
+  _biomeCache.key = "";
+  _reliefCache.key = "";
+  redraw();
+});
+
+_bindSlider(biomesInput, biomesValue, () => {
+  _biomeCache.key = "";
+  redraw();
+});
+
+_bindSlider(reliefInput, reliefValue, () => {
+  _reliefCache.key = "";
+  redraw();
+});
+
+// Number-инпут seed — перерисовка.
+seedInput.addEventListener("change", () => {
+  _biomeCache.key = "";
+  _reliefCache.key = "";
+  seedValue.textContent = seedInput.value;
+  redraw();
+});
+
+// ============================================================
+//  СТАРТ
+// ============================================================
+
+console.log("🗺️ World → PNG запущен");
+console.log("📖 Ожидание world.json");
+
+redraw();
+</script>
+
+</body>
+</html>

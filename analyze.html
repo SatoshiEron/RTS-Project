@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<title>World Analyzer</title>
+<style>
+  :root {
+    --bg:        #14161a;
+    --panel:     #1b1e24;
+    --panel-2:   #22262e;
+    --border:    #2c313a;
+    --text:      #d6dae0;
+    --muted:     #8a919c;
+    --accent:    #7fb2ff;
+    --danger:    #ff6b6b;
+    --warn:      #ffb454;
+    --ok:        #6bd67f;
+    --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 13px;
+    height: 100%;
+  }
+
+  .app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    padding: 16px;
+    gap: 12px;
+  }
+
+  .toolbar {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    flex-wrap: wrap;
+  }
+
+  .toolbar button,
+  .toolbar label.file-btn {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 14px;
+    font-family: var(--mono);
+    font-size: 12px;
+    cursor: pointer;
+    transition: background .12s, border-color .12s;
+    user-select: none;
+  }
+
+  .toolbar button:hover,
+  .toolbar label.file-btn:hover {
+    background: #2a2f38;
+    border-color: #3a4049;
+  }
+
+  .toolbar button:disabled {
+    opacity: .45;
+    cursor: not-allowed;
+  }
+
+  .toolbar button.accent { border-color: #2f4a75; color: var(--accent); }
+  .toolbar button.accent:hover { background: #1f2b3d; }
+
+  .toolbar input[type=file] { display: none; }
+
+  .status {
+    color: var(--muted);
+    font-size: 12px;
+    margin-left: auto;
+  }
+  .status.ok    { color: var(--ok); }
+  .status.error { color: var(--danger); }
+
+  .output {
+    flex: 1;
+    width: 100%;
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px 14px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    white-space: pre;
+    overflow: auto;
+    resize: none;
+    outline: none;
+  }
+
+  .output:focus { border-color: #3a4049; }
+
+  /* Раскраска внутри <pre>-подобного поля делаем через span-обёртку */
+  .output-wrap {
+    position: relative;
+    flex: 1;
+    display: flex;
+  }
+
+  .output-wrap .rendered {
+    position: absolute;
+    inset: 0;
+    padding: 12px 14px;
+    overflow: auto;
+    white-space: pre;
+    font-family: var(--mono);
+    font-size: 12px;
+    line-height: 1.5;
+    pointer-events: none;
+    display: none;
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="toolbar">
+    <label class="file-btn" for="fileInput">📂 Загрузить world.json</label>
+    <input type="file" id="fileInput" accept=".json,application/json" />
+
+    <button id="btnCopy" class="accent" disabled>📋 Скопировать отчёт</button>
+    <button id="btnDownload" disabled>💾 Скачать отчёт</button>
+
+    <span id="status" class="status">Ожидание файла…</span>
+  </div>
+
+  <textarea id="output" class="output" readonly placeholder="Здесь появится отчёт…"></textarea>
+</div>
+
+<script>
+"use strict";
+
+// ============================================================
+// СОСТОЯНИЕ
+// ============================================================
+let reportText = "";
+
+const $file     = document.getElementById("fileInput");
+const $output   = document.getElementById("output");
+const $btnCopy  = document.getElementById("btnCopy");
+const $btnDown  = document.getElementById("btnDownload");
+const $status   = document.getElementById("status");
+
+// ============================================================
+// ВСПОМОГАТЕЛЬНОЕ
+// ============================================================
+
+function setStatus(msg, kind) {
+  $status.textContent = msg;
+  $status.className = "status" + (kind ? " " + kind : "");
+}
+
+function fmt(n, digits = 4) {
+  if (!Number.isFinite(n)) return String(n);
+  return n.toFixed(digits);
+}
+
+/**
+ * Достаём массив провинций из world любой формы:
+ *   - { provinces: [...] }
+ *   - { map: { provinces: [...] } }
+ *   - [...] (сам массив)
+ */
+function extractProvinces(world) {
+  if (Array.isArray(world)) return world;
+  if (!world || typeof world !== "object") return [];
+  if (Array.isArray(world.provinces)) return world.provinces;
+  if (world.map && Array.isArray(world.map.provinces)) return world.map.provinces;
+  return [];
+}
+
+function extractPoints(world) {
+  if (!world || typeof world !== "object") return [];
+  if (Array.isArray(world.points)) return world.points;
+  if (world.map && Array.isArray(world.map.points)) return world.map.points;
+  return [];
+}
+
+function extractCities(world) {
+  if (!world || typeof world !== "object") return [];
+  if (Array.isArray(world.cities)) return world.cities;
+  if (world.map && Array.isArray(world.map.cities)) return world.map.cities;
+  return [];
+}
+
+/**
+ * Возвращаем массив точек провинции, приводя к { x, y }.
+ * Поддерживаем:
+ *   - prov.vertices: [{x,y}, ...]
+ *   - prov.vertexIds + points в корне (как в normalizeGeometry в игре)
+ */
+function resolveVertices(prov, pointsById) {
+  if (Array.isArray(prov.vertices) && prov.vertices.length > 0) {
+    return prov.vertices;
+  }
+  if (Array.isArray(prov.vertexIds) && prov.vertexIds.length > 0) {
+    return prov.vertexIds
+      .map((id) => pointsById.get(id))
+      .filter(Boolean)
+      .map((p) => ({ x: p.x, y: p.y }));
+  }
+  return [];
+}
+
+function buildPointsById(points) {
+  const map = new Map();
+  for (const p of points) {
+    if (p && p.id !== undefined) map.set(p.id, p);
+  }
+  return map;
+}
+
+// ============================================================
+// pointInPolygon — копия из GameState.js (ray casting)
+// ============================================================
+function pointInPolygon(point, vertices) {
+  if (!vertices || vertices.length < 3) return false;
+
+  let inside = false;
+
+  for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
+    const xi = vertices[i].x;
+    const yi = vertices[i].y;
+    const xj = vertices[j].x;
+    const yj = vertices[j].y;
+
+    const intersect =
+      (yi > point.y) !== (yj > point.y) &&
+      point.x < ((xj - xi) * (point.y - yi)) / (yj - yi) + xi;
+
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+}
+
+// ============================================================
+// АНАЛИЗ
+// ============================================================
+
+function analyze(world) {
+  const lines = [];
+  const push = (s = "") => lines.push(s);
+
+  const provinces = extractProvinces(world);
+  const points    = extractPoints(world);
+  const cities    = extractCities(world);
+  const pointsById = buildPointsById(points);
+
+  push("============================================================");
+  push("  WORLD ANALYZER — ОТЧЁТ");
+  push("  Дата: " + new Date().toISOString());
+  push("============================================================");
+  push("");
+  push("📦 ФОРМА ДАННЫХ");
+  push(`   world — ${Array.isArray(world) ? "массив" : typeof world}`);
+  push(`   provinces: ${provinces.length}`);
+  push(`   points:    ${points.length}`);
+  push(`   cities:    ${cities.length} (из world.cities)`);
+  push("");
+
+  if (provinces.length === 0) {
+    push("❌ Провинции не найдены. Проверь ключи world.provinces / world.map.provinces.");
+    return lines.join("\n");
+  }
+
+  // ===== ПОДГОТОВКА ДАННЫХ =====
+  const enriched = provinces.map((prov) => {
+    const v = resolveVertices(prov, pointsById);
+
+    let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    let nan = 0;
+
+    for (const p of v) {
+      if (!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) { nan++; continue; }
+      if (p.x < minX) minX = p.x;
+      if (p.y < minY) minY = p.y;
+      if (p.x > maxX) maxX = p.x;
+      if (p.y > maxY) maxY = p.y;
+    }
+
+    const hasBbox = Number.isFinite(minX) && Number.isFinite(maxX);
+    const bboxArea = hasBbox ? (maxX - minX) * (maxY - minY) : 0;
+    const verticesRef = Array.isArray(prov.vertices)
+      ? prov.vertices
+      : Array.isArray(prov.vertexIds)
+        ? prov.vertexIds
+        : null;
+
+    return {
+      prov,
+      id: prov.id,
+      type: prov.type || "?",
+      vertices: v,
+      nan,
+      bbox: hasBbox ? { minX, minY, maxX, maxY } : null,
+      bboxArea,
+      refKey: verticesRef,
+    };
+  });
+
+  // ===== 1. СПИСОК ПРОВИНЦИЙ =====
+  push("============================================================");
+  push("  1. ПРОВИНЦИИ");
+  push("============================================================");
+  push("");
+  push(
+    "  id    type      verts  nan  bbox                                  area"
+  );
+  push(
+    "  ----  --------  -----  ---  ------------------------------------  --------"
+  );
+
+  for (const e of enriched) {
+    const bboxStr = e.bbox
+      ? `[${fmt(e.bbox.minX,3)},${fmt(e.bbox.minY,3)} .. ${fmt(e.bbox.maxX,3)},${fmt(e.bbox.maxY,3)}]`
+      : "[—]";
+    push(
+      `  ${String(e.id).padEnd(4)}  ${String(e.type).padEnd(8)}  ` +
+      `${String(e.vertices.length).padStart(5)}  ` +
+      `${String(e.nan).padStart(3)}  ` +
+      `${bboxStr.padEnd(36)}  ${fmt(e.bboxArea,4)}`
+    );
+  }
+  push("");
+
+  // ===== 2. ОБЩИЕ ССЫЛКИ НА vertices =====
+  push("============================================================");
+  push("  2. ОБЩИЕ ССЫЛКИ НА vertices");
+  push("============================================================");
+  push("");
+
+  const refGroups = new Map();
+  for (const e of enriched) {
+    if (!e.refKey) continue;
+    if (!refGroups.has(e.refKey)) refGroups.set(e.refKey, []);
+    refGroups.get(e.refKey).push(e.id);
+  }
+
+  let shared = false;
+  for (const [, ids] of refGroups) {
+    if (ids.length > 1) {
+      shared = true;
+      push(`  ⚠️  Провинции [${ids.join(", ")}] делят ОДИН массив vertices!`);
+    }
+  }
+  if (!shared) push("  ✅ Общих ссылок не обнаружено.");
+  push("");
+
+  // ===== 3. ПОДОЗРИТЕЛЬНЫЕ ПРОВИНЦИИ (фон) =====
+  push("============================================================");
+  push("  3. ПОДОЗРИТЕЛЬНЫЕ ПРОВИНЦИИ (площадь bbox > 0.9)");
+  push("============================================================");
+  push("");
+
+  const backgrounds = enriched.filter((e) => e.bboxArea > 0.9);
+
+  if (backgrounds.length === 0) {
+    push("  ✅ Нет провинций, похожих на фон.");
+  } else {
+    for (const e of backgrounds) {
+      push(
+        `  🚨 #${e.id} type=${e.type} area=${fmt(e.bboxArea,4)} ` +
+        `verts=${e.vertices.length} → похоже на ФОН (покрывает всю карту)`
+      );
+    }
+  }
+  push("");
+
+  // ===== 4. ТОЧЕЧНЫЙ ТЕСТ =====
+  push("============================================================");
+  push("  4. ТОЧЕЧНЫЙ ТЕСТ (какие провинции накрывают точку)");
+  push("============================================================");
+  push("");
+
+  const testPoints = [
+    { x: 0.1, y: 0.1 },
+    { x: 0.5, y: 0.5 },
+    { x: 0.9, y: 0.9 },
+    { x: 0.3, y: 0.7 },
+    { x: 0.7, y: 0.3 },
+  ];
+
+  for (const pt of testPoints) {
+    const hits = enriched
+      .filter((e) => e.vertices.length >= 3 && pointInPolygon(pt, e.vertices))
+      .map((e) => `#${e.id}(${e.type})`);
+    push(
+      `  📍 (${pt.x}, ${pt.y}) → [${hits.join(", ") || "ничего"}] (${hits.length} шт.)`
+    );
+  }
+  push("");
+
+  // ===== 5. ГОРОДА =====
+  push("============================================================");
+  push("  5. ГОРОДА");
+  push("============================================================");
+  push("");
+
+  // Города могут быть:
+  //   а) в world.points с isCity: true
+  //   б) в world.cities
+  let cityList = [];
+  if (cities.length > 0) {
+    cityList = cities;
+  } else {
+    cityList = points.filter((p) => p && p.isCity);
+  }
+
+  push(`  Всего городов: ${cityList.length}`);
+
+  if (cityList.length === 0) {
+    push("  (городов не найдено — ни world.cities, ни points с isCity)");
+  } else {
+    let inWater = 0;
+    let inLand = 0;
+    let inNothing = 0;
+    const cityDetails = [];
+
+    for (const c of cityList) {
+      const pt = { x: c.x, y: c.y };
+      const hits = enriched.filter(
+        (e) => e.vertices.length >= 3 && pointInPolygon(pt, e.vertices)
+      );
+      if (hits.length === 0) {
+        inNothing++;
+        cityDetails.push(`  ⚠️  Город #${c.id} (${fmt(c.x,3)}, ${fmt(c.y,3)}) → ни в одной провинции`);
+      } else {
+        const waters = hits.filter((h) => h.type === "water");
+        const lands  = hits.filter((h) => h.type !== "water");
+        if (lands.length > 0) {
+          inLand++;
+        } else {
+          inWater++;
+          cityDetails.push(
+            `  🌊 Город #${c.id} (${fmt(c.x,3)}, ${fmt(c.y,3)}) → ТОЛЬКО вода: ` +
+            `[${hits.map((h) => `#${h.id}`).join(", ")}]`
+          );
+        }
+      }
+    }
+
+    push(`  В land:    ${inLand}`);
+    push(`  В water:   ${inWater}`);
+    push(`  Вне всех:  ${inNothing}`);
+    push("");
+    if (cityDetails.length > 0) {
+      push("  Детали проблемных городов:");
+      for (const line of cityDetails) push(line);
+    } else {
+      push("  ✅ Все города на земле.");
+    }
+  }
+  push("");
+
+  // ===== 6. ИТОГ =====
+  push("============================================================");
+  push("  ИТОГ");
+  push("============================================================");
+  push("");
+
+  const problems = [];
+  if (shared) problems.push("общие ссылки на vertices");
+  if (backgrounds.length > 0) problems.push(`фон-провинций: ${backgrounds.length}`);
+
+  if (problems.length === 0) {
+    push("  ✅ Критичных проблем не найдено.");
+  } else {
+    push("  ⚠️ Обнаружены проблемы:");
+    for (const p of problems) push(`     - ${p}`);
+  }
+  push("");
+
+  return lines.join("\n");
+}
+
+// ============================================================
+// UI
+// ============================================================
+
+$file.addEventListener("change", (e) => {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+
+  setStatus(`Чтение ${file.name}…`);
+
+  const reader = new FileReader();
+  reader.onerror = () => {
+    setStatus("Ошибка чтения файла", "error");
+  };
+  reader.onload = () => {
+    try {
+      const world = JSON.parse(reader.result);
+      const report = analyze(world);
+
+      reportText = report;
+      $output.value = report;
+      $btnCopy.disabled = false;
+      $btnDown.disabled = false;
+
+      setStatus(`Готово: ${file.name}`, "ok");
+    } catch (err) {
+      console.error(err);
+      setStatus("Невалидный JSON: " + err.message, "error");
+      $output.value = "Ошибка парсинга JSON:\n" + String(err && err.stack || err);
+      reportText = "";
+      $btnCopy.disabled = true;
+      $btnDown.disabled = true;
+    }
+  };
+  reader.readAsText(file, "utf-8");
+});
+
+$btnCopy.addEventListener("click", async () => {
+  if (!reportText) return;
+  try {
+    await navigator.clipboard.writeText(reportText);
+    setStatus("Скопировано в буфер", "ok");
+  } catch (err) {
+    // Fallback для file:// / старых браузеров
+    $output.removeAttribute("readonly");
+    $output.select();
+    try {
+      document.execCommand("copy");
+      setStatus("Скопировано (fallback)", "ok");
+    } catch (e2) {
+      setStatus("Не удалось скопировать: " + e2.message, "error");
+    } finally {
+      $output.setAttribute("readonly", "readonly");
+    }
+  }
+});
+
+$btnDown.addEventListener("click", () => {
+  if (!reportText) return;
+  const blob = new Blob([reportText], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "analyze_report.txt";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  setStatus("Файл скачан", "ok");
+});
+</script>
+</body>
+</html>

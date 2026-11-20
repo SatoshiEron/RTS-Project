@@ -13,6 +13,9 @@ export default class CombatSystem {
 
     // ИЗМЕНЕНО: временные визуальные эффекты боя.
     this.combatEffects = [];
+
+    // ИЗМЕНЕНО: длительность волны захвата провинции (сек.)
+    this.provinceCaptureEffectLife = 0.7;
   }
 
   update(dt) {
@@ -30,22 +33,29 @@ export default class CombatSystem {
         const a = units[i];
         const b = units[j];
 
+        // ИЗМЕНЕНО: защита от дубликатов юнитов в массиве
+        if (a === b) continue;
+        if (a.id === b.id) continue;
+
         if (a.owner === b.owner) continue;
         if (!a.isAlive() || !b.isAlive()) continue;
+
+        // ИЗМЕНЕНО: не атаковать, если фракции в мире.
+        if (!this.game.isAtWar(a.owner, b.owner)) continue;
 
         const dx = a.x - b.x;
         const dy = a.y - b.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < this.unitAttackRadius) {
-          // ИЗМЕНЕНО:
-          // Бой больше НЕ заставляет юниты навсегда стоять.
-          // CombatSystem только сообщает им, что они находятся в бою.
+        // ИЗМЕНЕНО: радиус атаки из юнита (арта бьёт дальше).
+        const aRadius = a.attackRadius || this.unitAttackRadius;
+        const bRadius = b.attackRadius || this.unitAttackRadius;
+        const maxRadius = Math.max(aRadius, bRadius);
+
+        if (dist < maxRadius) {
           a.combatTargetId = b.id;
           b.combatTargetId = a.id;
 
-          // Если юнит не выполняет приказ на движение,
-          // он может находиться в состоянии fighting.
           if (!a.movementCommandActive) {
             a.state = "fighting";
           }
@@ -54,38 +64,23 @@ export default class CombatSystem {
             b.state = "fighting";
           }
 
-          // ИЗМЕНЕНО:
-          // Кулдаун теперь хранится непосредственно у юнита
-          // и считается через dt.
-          a.attackTimer = Math.max(
-            0,
-            (a.attackTimer || 0) - dt
-          );
-
-          b.attackTimer = Math.max(
-            0,
-            (b.attackTimer || 0) - dt
-          );
+          a.attackTimer = Math.max(0, (a.attackTimer || 0) - dt);
+          b.attackTimer = Math.max(0, (b.attackTimer || 0) - dt);
 
           // ======================================================
-          // АТАКА A
+          // АТАКА A — только если A достаёт до B
           // ======================================================
 
-          if (a.attackTimer <= 0 && a.isAlive() && b.isAlive()) {
-            const damage = Math.max(
-              1,
-              a.attack - b.defense
-            );
+          if (a.attackTimer <= 0 && a.isAlive() && b.isAlive() && dist < aRadius) {
+            const damage = Math.max(1, a.attack - b.defense);
 
             b.takeDamage(damage);
-
             a.attackTimer = this.attackCooldown;
 
             console.log(
-              `⚔️ Юнит #${a.id} нанёс ${damage} урона юниту #${b.id}`
+              `⚔️ Юнит #${a.id} (${a.typeName || a.type}) нанёс ${damage} урона юниту #${b.id}`
             );
 
-            // ИЗМЕНЕНО: визуальный эффект атаки.
             this.addAttackEffect(a, b, damage);
 
             if (!b.isAlive()) {
@@ -95,31 +90,24 @@ export default class CombatSystem {
                 a.state = "idle";
               }
 
-              console.log(
-                `💀 Юнит #${b.id} уничтожен юнитом #${a.id}`
-              );
+              console.log(`💀 Юнит #${b.id} уничтожен юнитом #${a.id}`);
             }
           }
 
           // ======================================================
-          // АТАКА B
+          // АТАКА B — только если B достаёт до A
           // ======================================================
 
-          if (b.attackTimer <= 0 && a.isAlive() && b.isAlive()) {
-            const damage = Math.max(
-              1,
-              b.attack - a.defense
-            );
+          if (b.attackTimer <= 0 && a.isAlive() && b.isAlive() && dist < bRadius) {
+            const damage = Math.max(1, b.attack - a.defense);
 
             a.takeDamage(damage);
-
             b.attackTimer = this.attackCooldown;
 
             console.log(
-              `⚔️ Юнит #${b.id} нанёс ${damage} урона юниту #${a.id}`
+              `⚔️ Юнит #${b.id} (${b.typeName || b.type}) нанёс ${damage} урона юниту #${a.id}`
             );
 
-            // ИЗМЕНЕНО: визуальный эффект атаки.
             this.addAttackEffect(b, a, damage);
 
             if (!a.isAlive()) {
@@ -129,21 +117,14 @@ export default class CombatSystem {
                 b.state = "idle";
               }
 
-              console.log(
-                `💀 Юнит #${a.id} уничтожен юнитом #${b.id}`
-              );
+              console.log(`💀 Юнит #${a.id} уничтожен юнитом #${b.id}`);
             }
           }
         } else {
-          // ИЗМЕНЕНО:
-          // Если противники разошлись, бой прекращается.
           if (a.combatTargetId === b.id) {
             a.combatTargetId = null;
 
-            if (
-              !a.movementCommandActive &&
-              a.state === "fighting"
-            ) {
+            if (!a.movementCommandActive && a.state === "fighting") {
               a.state = "idle";
             }
           }
@@ -151,10 +132,7 @@ export default class CombatSystem {
           if (b.combatTargetId === a.id) {
             b.combatTargetId = null;
 
-            if (
-              !b.movementCommandActive &&
-              b.state === "fighting"
-            ) {
+            if (!b.movementCommandActive && b.state === "fighting") {
               b.state = "idle";
             }
           }
@@ -169,23 +147,23 @@ export default class CombatSystem {
     for (const unit of units) {
       if (!unit.isAlive()) continue;
 
-      const enemyCities = this.game.cities.filter(
-        (c) => c.owner !== unit.owner
-      );
+      // ИЗМЕНЕНО: перебираем ВСЕ города, фильтруем внутри цикла.
+      for (const city of this.game.cities) {
+        // Жёсткая защита: свой город не бьём никогда.
+        if (city.owner === unit.owner) continue;
 
-      for (const city of enemyCities) {
-        // ИЗМЕНЕНО:
-        // Юнит уже захватил этот город и всё ещё находится
-        // около него. Не позволяем снова наносить ему урон.
-        if (unit.lastCityId === city.id) {
-          continue;
-        }
+        // Юнит уже захватил этот город.
+        if (unit.lastCityId === city.id) continue;
+        // ИЗМЕНЕНО: нейтральные города (owner === 0) НЕ бьём.
+        // Захват нейтралов идёт только через GameState.tryCaptureCity —
+        // юнит входит в город и захватывает мгновенно, без осады.
+        if (city.owner === 0) continue;
 
-        // ИЗМЕНЕНО:
-        // Дополнительная защита от устаревшего списка enemyCities.
-        // Если город уже принадлежит этому юниту/фракции,
-        // осада невозможна.
-        if (city.owner === unit.owner) {
+        // ИЗМЕНЕНО: нельзя атаковать город в мире.
+        if (
+          city.owner !== 0 &&
+          !this.game.isAtWar(unit.owner, city.owner)
+        ) {
           continue;
         }
 
@@ -193,71 +171,54 @@ export default class CombatSystem {
         const dy = unit.y - city.y;
         const dist = Math.sqrt(dx * dx + dy * dy);
 
-        if (dist < this.cityAttackRadius) {
-          // ИЗМЕНЕНО:
-          // Если игрок отдал приказ на движение,
-          // приказ имеет приоритет и город не блокирует движение.
-          if (!unit.movementCommandActive) {
-            unit.state = "fighting";
-          }
+        if (dist >= this.cityAttackRadius) continue;
 
-          // ИЗМЕНЕНО:
-          // Отдельный таймер осады для каждого юнита.
-          unit.cityAttackTimer = Math.max(
-            0,
-            (unit.cityAttackTimer || 0) - dt
+        // Если игрок отдал приказ на движение — приказ приоритетнее.
+        if (!unit.movementCommandActive) {
+          unit.state = "fighting";
+        }
+
+        unit.cityAttackTimer = Math.max(
+          0,
+          (unit.cityAttackTimer || 0) - dt
+        );
+
+        if (unit.cityAttackTimer <= 0) {
+          // Повторная проверка прямо перед уроном.
+          if (city.owner === unit.owner) continue;
+          // ИЗМЕНЕНО: ещё одна проверка нейтрала прямо перед уроном.
+          if (city.owner === 0) continue;
+
+          const damage = Math.max(1, unit.attack - (city.defense || 20));
+
+          city.takeDamage(damage);
+          unit.cityAttackTimer = this.attackCooldown;
+
+          console.log(
+            `🏰 Юнит #${unit.id} (${unit.typeName || unit.type}) нанёс ${damage} урона городу "${city.name}" (HP: ${Math.floor(
+              city.hp
+            )}/${city.maxHp})`
           );
 
-          if (unit.cityAttackTimer <= 0) {
-            // ИЗМЕНЕНО:
-            // Повторно проверяем владельца прямо перед нанесением урона.
-            // Это защищает от ситуации, когда город был захвачен
-            // другим юнитом в предыдущей итерации.
-            if (city.owner === unit.owner) {
-              continue;
-            }
+          this.addCityAttackEffect(unit, city, damage);
+        }
 
-            const damage = Math.max(
-              1,
-              unit.attack - (city.defense || 20)
-            );
+        if (city.isDestroyed()) {
+          city.owner = unit.owner;
+          city.hp = city.maxHp * 0.5;
+          unit.lastCityId = city.id;
 
-            city.takeDamage(damage);
-
-            unit.cityAttackTimer = this.attackCooldown;
-
-            console.log(
-              `🏰 Юнит #${unit.id} нанёс ${damage} урона городу "${city.name}" (HP: ${Math.floor(
-                city.hp
-              )}/${city.maxHp})`
-            );
-
-            // ИЗМЕНЕНО: визуальный эффект попадания по городу.
-            this.addCityAttackEffect(
-              unit,
-              city,
-              damage
-            );
+          // ИЗМЕНЕНО: смена владельца через осаду → пересборка территории.
+          if (this.game.renderer && this.game.renderer.markTerritoryDirty) {
+            this.game.renderer.markTerritoryDirty();
           }
 
-          if (city.isDestroyed()) {
-            // ИЗМЕНЕНО:
-            // Явно передаём владельца города владельцу юнита.
-            city.owner = unit.owner;
+          console.log(
+            `🏙️ Город "${city.name}" захвачен юнитом #${unit.id}`
+          );
 
-            city.hp = city.maxHp * 0.5;
-
-            // Защита от повторной атаки/захвата этого же города.
-            unit.lastCityId = city.id;
-
-            console.log(
-              `🏙️ Город "${city.name}" захвачен юнитом #${unit.id}`
-            );
-
-            // После захвата бой с городом прекращается.
-            if (!unit.movementCommandActive) {
-              unit.state = "idle";
-            }
+          if (!unit.movementCommandActive) {
+            unit.state = "idle";
           }
         }
       }
@@ -281,10 +242,7 @@ export default class CombatSystem {
         if (prov.center) {
           centerX = prov.center.x;
           centerY = prov.center.y;
-        } else if (
-          prov.vertices &&
-          prov.vertices.length > 0
-        ) {
+        } else if (prov.vertices && prov.vertices.length > 0) {
           let sumX = 0;
           let sumY = 0;
 
@@ -293,11 +251,8 @@ export default class CombatSystem {
             sumY += v.y;
           }
 
-          centerX =
-            sumX / prov.vertices.length;
-
-          centerY =
-            sumY / prov.vertices.length;
+          centerX = sumX / prov.vertices.length;
+          centerY = sumY / prov.vertices.length;
         } else {
           continue;
         }
@@ -309,9 +264,15 @@ export default class CombatSystem {
         if (dist < this.provinceCaptureRadius) {
           if (prov.owner === unit.owner) continue;
 
+          if (
+            prov.owner !== 0 &&
+            !this.game.isAtWar(unit.owner, prov.owner)
+          ) {
+            continue;
+          }
+
           prov.captureProgress =
-            (prov.captureProgress || 0) +
-            this.captureSpeed * dt;
+            (prov.captureProgress || 0) + this.captureSpeed * dt;
 
           if (prov.captureProgress >= 1) {
             prov.owner = unit.owner;
@@ -319,6 +280,13 @@ export default class CombatSystem {
 
             console.log(
               `🗺️ Провинция #${prov.id} захвачена юнитом #${unit.id}`
+            );
+
+            this.addProvinceCaptureEffect(
+              prov,
+              centerX,
+              centerY,
+              unit.owner
             );
           }
         } else {
@@ -337,64 +305,64 @@ export default class CombatSystem {
     // 4. УДАЛЕНИЕ МЁРТВЫХ ЮНИТОВ
     // ============================================================
 
-    // ИЗМЕНЕНО:
-    // Оставляем этот фильтр, как и раньше.
-    // Основная очистка также выполняется GameState.cleanupDeadUnits().
-    this.game.units = this.game.units.filter(
-      (u) => u.isAlive()
-    );
+    this.game.units = this.game.units.filter((u) => u.isAlive());
   }
 
   // ============================================================
   // ВИЗУАЛЬНЫЕ ЭФФЕКТЫ БОЯ
   // ============================================================
 
-  // ИЗМЕНЕНО:
-  // Создаёт эффект выстрела/удара между двумя юнитами.
   addAttackEffect(attacker, target, damage) {
     this.combatEffects.push({
       type: "unitAttack",
-
       x1: attacker.x,
       y1: attacker.y,
-
       x2: target.x,
       y2: target.y,
-
       targetX: target.x,
       targetY: target.y,
-
       damage,
-
       life: 0.18,
       maxLife: 0.18,
     });
   }
 
-  // ИЗМЕНЕНО:
-  // Эффект попадания по городу.
   addCityAttackEffect(attacker, city, damage) {
     this.combatEffects.push({
       type: "cityAttack",
-
       x1: attacker.x,
       y1: attacker.y,
-
       x2: city.x,
       y2: city.y,
-
       targetX: city.x,
       targetY: city.y,
-
       damage,
-
       life: 0.2,
       maxLife: 0.2,
     });
   }
 
-  // ИЗМЕНЕНО:
-  // Уменьшаем время жизни визуальных эффектов.
+  addProvinceCaptureEffect(prov, centerX, centerY, ownerId) {
+    let maxRadius = 0.05;
+
+    if (prov.vertices && prov.vertices.length > 0) {
+      for (const v of prov.vertices) {
+        const d = Math.hypot(v.x - centerX, v.y - centerY);
+        if (d > maxRadius) maxRadius = d;
+      }
+    }
+
+    this.combatEffects.push({
+      type: "provinceCapture",
+      x: centerX,
+      y: centerY,
+      maxRadius,
+      ownerId,
+      life: this.provinceCaptureEffectLife,
+      maxLife: this.provinceCaptureEffectLife,
+    });
+  }
+
   updateCombatEffects(dt) {
     if (!this.combatEffects.length) return;
 

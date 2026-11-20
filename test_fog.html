@@ -2,21 +2,13 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
-  <title>Map Builder — исправленный</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Territory — Distance Field + Generator</title>
   <style>
-    :root {
-      --bg: #0f121a;
-      --panel: #161b26;
-      --accent: #4a9eff;
-      --text: #e0e6f5;
-      --border: #2a3347;
-    }
-    * { margin:0; padding:0; box-sizing:border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       font-family: 'Segoe UI', sans-serif;
-      background: var(--bg);
-      color: var(--text);
+      background: #0a0d14;
+      color: #e0e6f5;
       height: 100vh;
       overflow: hidden;
       display: flex;
@@ -26,1945 +18,1776 @@
       position: relative;
       background: #0a0d14;
       overflow: hidden;
-      cursor: crosshair;
-      border-right: 1px solid var(--border);
     }
-    canvas {
-      display: block;
-      width: 1280px;
-      height: 720px;
-    }
+    canvas { display: block; }
     #rightPanel {
-      width: 380px;
+      width: 360px;
       background: #161b26;
-      border-left: 1px solid var(--border);
+      border-left: 1px solid #2a3347;
+      padding: 16px;
+      overflow-y: auto;
       display: flex;
       flex-direction: column;
-      overflow-y: auto;
-      padding: 12px 16px;
-      gap: 4px;
+      gap: 12px;
     }
-    h2 { color: #a3b8ff; font-size: 18px; }
+    h2 { color: #a3b8ff; font-size: 16px; }
     h3 { color: #a3b8ff; font-size: 13px; margin: 6px 0 4px; }
+    .section { padding: 8px 0; border-bottom: 1px solid #2a3347; }
+    .hint { font-size: 11px; color: #8892b0; line-height: 1.6; }
     button {
       background: #1e2537;
-      color: var(--text);
-      border: 1px solid var(--border);
-      padding: 5px 10px;
+      color: #e0e6f5;
+      border: 1px solid #2a3347;
+      padding: 9px 12px;
       border-radius: 8px;
       cursor: pointer;
-      font-size: 12px;
+      font-size: 13px;
+      width: 100%;
+      margin: 2px 0;
       transition: 0.15s;
-      margin: 2px;
     }
     button:hover { background: #2a3347; }
-    button.active { background: var(--accent); color: white; border-color: var(--accent); }
-    .section { padding: 6px 0; border-bottom: 1px solid var(--border); }
-    .hint { font-size: 11px; color: #8892b0; margin-top: 2px; }
-    #status { font-size: 13px; color: #8892b0; padding: 4px 0; }
-    #status.active { color: #4a9eff; }
-    textarea {
-      width: 100%;
-      height: 100px;
-      background: #0a0d14;
-      color: #a0b0d0;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 6px;
-      font-family: monospace;
-      font-size: 11px;
-      resize: vertical;
+    button.primary {
+      background: #4a9eff;
+      border-color: #4a9eff;
+      color: white;
+      font-weight: 600;
     }
-    #objectList {
+    button.primary:hover { background: #3a8eef; }
+    button.warn {
+      background: #4a2a2a;
+      border-color: #6a3a3a;
+      color: #ffaaaa;
+    }
+    button.warn:hover { background: #5a3535; }
+    label { font-size: 12px; color: #8892b0; display: block; margin: 8px 0 2px; }
+    input[type="range"] { width: 100%; }
+    input[type="number"] {
+      width: 100%;
       background: #0a0d14;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 6px;
-      max-height: 120px;
-      overflow-y: auto;
+      border: 1px solid #2a3347;
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: #dce2ef;
       font-size: 12px;
     }
-    #objectList div { padding: 2px 6px; cursor: pointer; border-radius: 4px; }
-    #objectList div:hover { background: #1a2233; }
-    #objectList div.selected { background: rgba(255,255,0,0.18); color: #ffff66; border-left: 2px solid #ffff00; }
-    /* ИЗМЕНЕНО: подсказка множественного выделения */
-    #objectList .selection-summary { color:#ffff66; padding:4px 6px; font-size:11px; border-bottom:1px solid var(--border); margin-bottom:3px; }
-    #dropHint {
-      position: absolute;
-      inset: 0;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      pointer-events: none;
-      color: #8892b0;
-      font-size: 14px;
-      background: radial-gradient(circle at center, rgba(255,255,255,0.03) 0, transparent 55%);
+    input[type="file"] {
+      width: 100%;
+      background: #0a0d14;
+      border: 1px solid #2a3347;
+      border-radius: 8px;
+      padding: 9px;
+      color: #dce2ef;
+      font-size: 12px;
     }
-    .btn-group { display: flex; flex-wrap: wrap; gap: 2px; }
-    .btn-group button { flex: 1; min-width: 60px; }
-    #zoomLevel { margin-left: 8px; color: #8892b0; font-size: 12px; }
+    select {
+      width: 100%;
+      background: #0a0d14;
+      border: 1px solid #2a3347;
+      border-radius: 6px;
+      padding: 6px 8px;
+      color: #dce2ef;
+      font-size: 12px;
+    }
+    .value { color: #ffd700; font-weight: 600; }
+    .status { padding: 8px 12px; background: rgba(8,12,20,0.65); border-radius: 8px; color: #aeb8ca; font-size: 12px; }
+    .row { display: flex; gap: 6px; }
+    .row > button { flex: 1; }
+    kbd {
+      background: #0a0d14;
+      border: 1px solid #2a3347;
+      border-radius: 4px;
+      padding: 1px 5px;
+      font-size: 11px;
+      color: #ffd700;
+      font-family: monospace;
+    }
   </style>
 </head>
 <body>
 
 <div id="canvasContainer">
-  <canvas id="mapCanvas" width="1280" height="720"></canvas>
-  <div id="dropHint">Перетащите PNG‑карту сюда</div>
+  <canvas id="mapCanvas"></canvas>
 </div>
 
 <div id="rightPanel">
-  <h2>🗺️ Map Builder</h2>
+  <h2>🗺️ Territory — Distance Field</h2>
 
   <div class="section">
-    <button id="loadImageBtn">📁 Загрузить PNG</button>
-    <input type="file" id="fileInput" accept="image/png" style="display:none;">
-    <button id="exportPngBtn">📤 Экспорт PNG</button>
+    <h3>1. Загрузка</h3>
+    <input type="file" id="worldInput" accept=".json,application/json" />
+    <div id="status" class="status">📋 Ожидание world.json</div>
   </div>
 
   <div class="section">
-    <h3>🎮 Режимы</h3>
-    <div id="modeButtons" class="btn-group">
-      <button data-mode="select">🖱️ Выделение</button>
-      <button data-mode="road">🛤️ Дорога</button>
-      <button data-mode="rail">🚆 Ж/Д</button>
-      <button data-mode="river">🌊 Река</button>
-      <button data-mode="land">🟩 Суша</button>
-      <button data-mode="trace">✏️ Обводка</button>
-      <button data-mode="province_paint" style="background:#1a3a2a;border-color:#4a9a6a;">🖌️ Провинции</button>
-      <button data-mode="connect" style="background:#2a3a4a;border-color:#4a7a9a;">🔗 Соединить</button>
-    </div>
-    <div id="status">⏸️ Выберите режим</div>
+    <h3>2. Действия</h3>
+    <button id="btnAutoSplit" class="primary">🎨 Авто-разделение (лево/право)</button>
+    <button id="btnRandom">🎲 Случайные фракции</button>
+    <button id="btnAllPlayer">🟦 Все игроку</button>
+    <button id="btnClear">⬜ Сбросить</button>
   </div>
 
   <div class="section">
-    <h3>🏙️ Города и объекты</h3>
-    <div class="btn-group">
-      <button id="makeCityBtn">🏙️ Город</button>
-      <button id="makePortBtn">⚓ Порт</button>
-      <button id="makeAirfieldBtn">🛩️ Аэродром</button>
-      <button id="makeFarmBtn">🌾 Ферма</button>
-    </div>
-    <div class="btn-group">
-      <button id="makeMineBtn">⛏️ Шахта</button>
-      <button id="makeFactoryBtn">🏭 Завод</button>
-      <button id="makeTradeBtn">💰 Торговля</button>
-    </div>
-    <div class="hint">Выделите точку → нажмите кнопку типа</div>
+    <h3>2.5 Вид</h3>
+    <label>Стиль отрисовки:</label>
+    <select id="renderStyle">
+      <option value="full" selected>Территория + фронт</option>
+      <option value="territory">Только территория</option>
+      <option value="front">Только фронт</option>
+      <option value="noise">Территория + шум (без фронта)</option>
+    </select>
+    <button id="btnResetView" class="primary" style="margin-top:6px;">↺ Сброс вида (R, K)</button>
   </div>
 
   <div class="section">
-    <h3>🔍 Управление</h3>
-    <button id="centerBtn">🎯 Центр</button>
-    <button id="findOrphansBtn" style="color:#ffaa44;">🔍 Найти сирот</button>
-    <button id="mergeVerticesBtn" style="color:#66dd88;">🔗 Слить границы</button>
-    <button id="deleteOrphansBtn" style="color:#ff6666;">🗑️ Удалить сирот</button>
-    <button id="zoomInBtn">🔍 +</button>
-    <button id="zoomOutBtn">🔍 -</button>
-    <button id="zoomResetBtn">1:1</button>
-    <span id="zoomLevel">100%</span>
-    <button id="deletePointBtn" style="color:#ff6666;">🗑️ Удалить точку</button>
-    <button id="deleteLineBtn" style="color:#ff6666;">🗑️ Удалить линию</button>
+    <h3>3. Параметры</h3>
+    <label>Радиус влияния R: <span id="radiusVal" class="value">0.12</span></label>
+    <input type="range" id="radius" min="0.03" max="0.30" step="0.01" value="0.12">
+
+    <label>Ширина спорной W (px): <span id="contestedPxVal" class="value">12</span></label>
+    <input type="range" id="contestedPx" min="2" max="60" step="2" value="12">
+
+    <label>Soft-min K: <span id="softKVal" class="value">0.03</span></label>
+    <input type="range" id="softK" min="0.005" max="0.10" step="0.005" value="0.03">
+
+    <label>Шум: <span id="noiseAmpVal" class="value">0.15</span></label>
+    <input type="range" id="noiseAmp" min="0" max="0.5" step="0.05" value="0.15">
+
+    <label>Разрешение сетки: <span id="gridResVal" class="value">120</span></label>
+    <input type="range" id="gridRes" min="60" max="300" step="20" value="120">
+
+    <label>Толщина границы фронта: <span id="frontWidthVal" class="value">2.5</span></label>
+    <input type="range" id="frontWidth" min="0.5" max="6" step="0.5" value="2.5">
+
+    <label>Плавность перехода (мс): <span id="transitionMsVal" class="value">350</span></label>
+    <input type="range" id="transitionMs" min="0" max="1500" step="50" value="350">
+  </div>
+
+  <div class="section">
+    <h3>5. Юниты</h3>
+    <div class="row">
+      <button id="btnUnitPlayer" class="primary">🟦 Игрок</button>
+      <button id="btnUnitAi">🟥 ИИ</button>
+      <button id="btnUnitClear" class="warn">🗑 Очистить</button>
+    </div>
+    <div class="hint" style="margin-top:6px;">
+      Клик по карте — создать юнит выбранного цвета.<br>
+      Клик по юниту — выделить. Потом клик по цели — движение.<br>
+      Юниты сдвигают фронт: своя сторона расширяется, чужая отступает.
+    </div>
+  </div>
+
+  <div class="section">
+    <h3>4. Генератор карты</h3>
+    <label>Провинций: <span id="genProvincesVal" class="value">60</span></label>
+    <input type="range" id="genProvinces" min="10" max="300" step="5" value="60">
+
+    <label>Городов: <span id="genCitiesVal" class="value">14</span></label>
+    <input type="range" id="genCities" min="2" max="40" step="1" value="14">
+
+    <label>Островность (0 = континент, 1 = архипелаг): <span id="genIslandsVal" class="value">0.4</span></label>
+    <input type="range" id="genIslands" min="0" max="1" step="0.05" value="0.4">
+
+    <label>Seed (0 = случайный): <span id="genSeedVal" class="value">0</span></label>
+    <input type="number" id="genSeed" min="0" max="999999" step="1" value="0">
+
+    <div class="row" style="margin-top:8px;">
+      <button id="btnGenerate" class="primary">🎲 Сгенерировать</button>
+      <button id="btnDownloadJson">💾 JSON</button>
+    </div>
+    <button id="btnDownloadPng" style="margin-top:2px;">📷 Скачать PNG</button>
+  </div>
+
+  <div class="section">
+    <h3>Горячие клавиши</h3>
     <div class="hint">
-      Колёсико — зум. ПКМ — панорамирование. Delete — удалить.<br>
-      <strong>Выделение:</strong> Ctrl/Shift+клик — добавить, рамка — множественный выбор, Esc — сбросить.<br>
-      <strong>Горячие клавиши:</strong> 1-Выделение, 2-Дорога, 3-Ж/Д, 4-Река, 5-Суша, 6-Обводка, 7-Провинции, 8-Соединить
+      <kbd>Space</kbd> — пауза анимации<br>
+      <kbd>Delete</kbd> / <kbd>Backspace</kbd> — удалить выделенный юнит<br>
+      <kbd>Esc</kbd> — снять выделение<br>
+      <kbd>G</kbd> — сгенерировать карту заново
     </div>
   </div>
 
   <div class="section">
-    <h3>💾 Сохранение</h3>
-    <button id="saveWorldBtn">💾 Сохранить world.json</button>
-    <button id="loadJsonBtn">📂 Загрузить JSON</button>
-    <input type="file" id="jsonFileInput" accept=".json" style="display:none;">
-    <button id="clearBtn" style="color:#ff6666;">🗑️ Очистить всё</button>
-    <button id="undoBtn">↩️ Отмена (Ctrl+Z)</button>
-  </div>
-
-  <div class="section">
-    <h3>Объекты</h3>
-    <div id="objectList"></div>
-  </div>
-
-  <div class="section">
-    <textarea id="jsonArea" placeholder="JSON..."></textarea>
+    <h3>Легенда</h3>
+    <div class="hint">
+      🟦 <b>Игрок</b> — синий<br>
+      🟥 <b>ИИ</b> — красный<br>
+      🟨 <b>Спорное</b> — штриховка<br>
+      ⬜ <b>Ничейное</b> — прозрачно<br>
+      <br>
+      <b>Логика:</b><br>
+      <code>d = softmin(расстояния до своих городов)</code><br>
+      <code>reach = R − d·(1 + noise) + unitBonus</code><br>
+      <code>s = (dA² − dP²) / (2·|PA|)</code><br>
+      <br>
+      Юниты: своя сторона расширяется, чужая отступает.
+    </div>
   </div>
 </div>
 
 <script>
 // ============================================================
-//  MAP BUILDER — ИСПРАВЛЕННЫЙ
+//  TEST TERRITORY — DISTANCE FIELD + TRANSITIONS + GENERATOR
 // ============================================================
 
 const canvas = document.getElementById("mapCanvas");
 const ctx = canvas.getContext("2d");
 const container = document.getElementById("canvasContainer");
+
+const worldInput = document.getElementById("worldInput");
 const statusEl = document.getElementById("status");
-const dropHint = document.getElementById("dropHint");
 
-let bgImage = null;
-let bgImageLoaded = false;
+let worldData = {
+  points: [],
+  roads: [],
+  provinces: []
+};
 
-let points = [];
-let roads = [];
-let provinces = [];
-let nextPointId = 1;
-let nextRoadId = 1;
-let nextProvinceId = 1;
+let R = 0.12;
+let contestedPx = 12;
+let softK = 0.03;
+let noiseAmp = 0.15;
+let gridRes = 120;
+let frontWidth = 2.5;
+let transitionMs = 350;
 
-// ИЗМЕНЕНО: единое множественное выделение
-let selectedObjects = [];
-
-let zoom = 1;
-let offsetX = 0;
-let offsetY = 0;
-
-let isPanning = false;
-let panStartX = 0, panStartY = 0;
-let panStartOffsetX = 0, panStartOffsetY = 0;
-
-let mode = "select";
-
-let currentPolyline = [];
-let currentPolygon = [];
-
-let isTracing = false;
-let tracePoints = [];
-const TRACE_SNAP_DIST = 0.003;
-
-let isPaintingProvince = false;
-let provincePaintPoints = [];
-const PAINT_SNAP_DIST = 0.003;
-
-let connectPoints = [];
-
-let undoStack = [];
-let draggedPointId = null;
-const SNAP_DISTANCE = 0.008;
-
-// ИЗМЕНЕНО: точка, к которой текущий курсор примагничивается при рисовании
-let snapPreviewPointId = null;
-
-let orphanPoints = [];
-let lastMouseX = 0;
-let lastMouseY = 0;
+let landMask = null;
+let renderStyle = "full"; // full | territory | front | noise
+let paused = false;
 
 // ============================================================
-//  МНОЖЕСТВЕННОЕ ВЫДЕЛЕНИЕ
+//  ЮНИТЫ
 // ============================================================
-// ИЗМЕНЕНО: единый формат selectedObjects
-function isObjectSelected(type, id) {
-  return selectedObjects.some(obj => obj.type === type && obj.id === id);
-}
+let units = [];
+let selectedUnit = null;
+let unitCreateOwner = 1;
+const UNIT_RADIUS = 8;
+const UNIT_SPEED = 0.005;
+const UNIT_INFLUENCE = 0.10;
+const UNIT_PUSH_OWN = 0.08;
+const UNIT_PUSH_ENEMY = 0.04;
+const UNIT_REACH_BONUS = 0.06;
 
-function selectObject(type, id, additive = false) {
-  // ИЗМЕНЕНО: Ctrl/Shift добавляют или снимают объект из выделения
-  const exists = isObjectSelected(type, id);
-  if (!additive) {
-    selectedObjects = [{ type, id }];
-  } else if (exists) {
-    selectedObjects = selectedObjects.filter(obj => !(obj.type === type && obj.id === id));
-  } else {
-    selectedObjects.push({ type, id });
-  }
-}
+// ============================================================
+//  ПЛАВНЫЕ ПЕРЕХОДЫ
+// ============================================================
+let cellReachCurrent = null;
+let cellReachTarget = null;
+let cellSCurrent = null;
+let cellSTarget = null;
+let transitionStart = 0;
+let transitionActive = false;
 
-function clearSelection() {
-  selectedObjects = [];
-  updateObjectList();
+// ============================================================
+//  РАЗМЕР
+// ============================================================
+function resize() {
+  canvas.width = container.clientWidth;
+  canvas.height = container.clientHeight;
+  rebuildFieldBuffers();
+  computeTargetField();
+  snapCurrentToTarget();
   redraw();
 }
-
-function getSelectedPointIds() {
-  const ids = new Set();
-  for (const obj of selectedObjects) {
-    if (obj.type === 'point') ids.add(obj.id);
-    if (obj.type === 'road') {
-      const road = roads.find(r => r.id === obj.id);
-      if (road) road.pointIds.forEach(id => ids.add(id));
-    }
-    if (obj.type === 'province') {
-      const prov = provinces.find(p => p.id === obj.id);
-      if (prov && prov.vertexIds) prov.vertexIds.forEach(id => ids.add(id));
-    }
-  }
-  return ids;
-}
-
-function getRoadAt(wx, wy) {
-  // ИЗМЕНЕНО: выбор линии по расстоянию до её сегментов
-  let best = null;
-  let bestDist = 0.015;
-  for (const road of roads) {
-    const pts = road.pointIds.map(id => points.find(p => p.id === id)).filter(Boolean);
-    for (let i = 0; i < pts.length - 1; i++) {
-      const a = pts[i], b = pts[i + 1];
-      const dx = b.x - a.x, dy = b.y - a.y;
-      const len2 = dx * dx + dy * dy;
-      let t = len2 > 0 ? ((wx - a.x) * dx + (wy - a.y) * dy) / len2 : 0;
-      t = Math.max(0, Math.min(1, t));
-      const px = a.x + t * dx, py = a.y + t * dy;
-      const d = Math.hypot(wx - px, wy - py);
-      if (d < bestDist) { bestDist = d; best = road; }
-    }
-  }
-  return best;
-}
-
-function getProvinceAt(wx, wy) {
-  // ИЗМЕНЕНО: выбор провинции через point-in-polygon
-  for (const prov of provinces) {
-    const vertices = (prov.vertexIds || []).map(id => points.find(p => p.id === id)).filter(Boolean);
-    if (vertices.length >= 3 && pointInPolygon({ x: wx, y: wy }, vertices)) return prov;
-  }
-  return null;
-}
-
-function getProvinceCenter(prov) {
-  const vertices = (prov.vertexIds || []).map(id => points.find(p => p.id === id)).filter(Boolean);
-  if (!vertices.length) return null;
-  return {
-    x: vertices.reduce((sum, p) => sum + p.x, 0) / vertices.length,
-    y: vertices.reduce((sum, p) => sum + p.y, 0) / vertices.length
-  };
-}
-
-function getSelectionCountText() {
-  if (!selectedObjects.length) return '';
-  return ` | Выбрано: ${selectedObjects.length}`;
-}
+window.addEventListener("resize", resize);
 
 // ============================================================
 //  КООРДИНАТЫ
 // ============================================================
-function screenToWorld(sx, sy) {
-  return {
-    x: (sx - offsetX) / (canvas.width * zoom),
-    y: (sy - offsetY) / (canvas.height * zoom)
-  };
-}
-
-function worldToScreen(wx, wy) {
-  return {
-    x: wx * canvas.width * zoom + offsetX,
-    y: wy * canvas.height * zoom + offsetY
-  };
+function worldToScreen(x, y) {
+  return { x: x * canvas.width, y: y * canvas.height };
 }
 
 // ============================================================
-//  ТОЧКИ-СИРОТЫ (ИСПРАВЛЕНО)
+//  ЗАГРУЗКА
 // ============================================================
-function findOrphanPoints() {
-  const usedInRoads = new Set();
-  for (const road of roads) {
-    for (const id of road.pointIds) {
-      usedInRoads.add(id);
-    }
-  }
+worldInput.addEventListener("change", (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-  const usedInProvinces = new Set();
-  for (const prov of provinces) {
-    if (prov.vertexIds) {
-      for (const id of prov.vertexIds) {
-        usedInProvinces.add(id);
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+
+      // ИЗМЕНЕНО: сброс юнитов ДО разбора новой карты
+      units = [];
+      selectedUnit = null;
+
+      worldData = {
+        points: Array.isArray(data.points) ? data.points : [],
+        roads: Array.isArray(data.roads) ? data.roads : [],
+        provinces: Array.isArray(data.provinces) ? data.provinces : []
+      };
+
+      // ИЗМЕНЕНО: восстановление юнитов из JSON
+      if (Array.isArray(data.units)) {
+        let nextId = 1;
+        for (const u of data.units) {
+          if (!isFinite(u.x) || !isFinite(u.y)) continue;
+          units.push({
+            id: nextId++,
+            x: u.x,
+            y: u.y,
+            owner: (u.owner === 2 ? 2 : 1),
+            targetX: u.x,
+            targetY: u.y,
+            selected: false,
+            speed: UNIT_SPEED,
+          });
+        }
       }
-    }
-  }
 
-  orphanPoints = [];
-  for (const p of points) {
-    if (p.isCity) continue;
-    const inRoad = usedInRoads.has(p.id);
-    const inProvince = usedInProvinces.has(p.id);
-    if (!inRoad && !inProvince) {
-      orphanPoints.push(p.id);
-    }
-  }
+      prepareProvinces();
+      buildLandMask();
+      autoSplitFactions();
 
-  if (orphanPoints.length === 0) {
-    alert('✅ Точки-сироты не найдены! Все точки используются.');
-  } else {
-    alert(`🔍 Найдено ${orphanPoints.length} точек-сирот.\nОни выделены жёлтым на карте.`);
-    selectedObjects = [];
-    updateObjectList();
-    redraw();
+      const citiesCount = worldData.points.filter(p => p.isCity).length;
+      statusEl.textContent =
+        `📋 ${worldData.provinces.length} провинций, ${citiesCount} городов` +
+        (units.length ? `, юнитов: ${units.length}` : "");
+      console.log(`📥 world.json загружен`);
+
+      rebuildFieldBuffers();
+      computeTargetField();
+      snapCurrentToTarget();
+      redraw();
+    } catch (err) {
+      console.error("❌ Ошибка загрузки:", err);
+      statusEl.textContent = `❌ Ошибка: ${err.message}`;
+    }
+  };
+  reader.readAsText(file);
+  e.target.value = "";
+});
+
+// ============================================================
+//  ПОДГОТОВКА ПРОВИНЦИЙ
+// ============================================================
+function prepareProvinces() {
+  const pointsById = new Map(worldData.points.map(p => [p.id, p]));
+
+  for (const prov of worldData.provinces) {
+    let vertices = [];
+
+    if (Array.isArray(prov.vertices) && prov.vertices.length >= 3) {
+      vertices = prov.vertices.filter(v => v && isFinite(v.x) && isFinite(v.y));
+    } else if (Array.isArray(prov.vertexIds) && prov.vertexIds.length >= 3) {
+      vertices = prov.vertexIds
+        .map(id => pointsById.get(id))
+        .filter(p => p && isFinite(p.x) && isFinite(p.y))
+        .map(p => ({ x: p.x, y: p.y }));
+    }
+
+    prov._vertices = vertices;
   }
 }
 
-function deleteOrphanPoints() {
-  if (orphanPoints.length === 0) {
-    alert('ℹ️ Нет точек-сирот для удаления.');
-    return;
-  }
-  const count = orphanPoints.length;
-  if (!confirm(`Удалить ${count} точек-сирот?`)) return;
-  pushUndo();
-  points = points.filter(p => !orphanPoints.includes(p.id));
-  orphanPoints = [];
-  selectedObjects = [];
-  updateObjectList();
-  redraw();
-  alert(`✅ Удалено ${count} точек-сирот.`);
-}
+// ============================================================
+//  МАСКА СУШИ
+// ============================================================
+function buildLandMask() {
+  const res = gridRes;
+  const mask = new Uint8Array(res * res);
 
-// ============================================================
-//  ПОИСК ТОЧКИ
-// ============================================================
-function findNearestPoint(wx, wy) {
-  // ИЗМЕНЕНО: единый радиус снаппинга для всех режимов
-  let best = null;
-  let bestDist = SNAP_DISTANCE;
-  for (const p of points) {
-    const dx = p.x - wx;
-    const dy = p.y - wy;
-    const dist = Math.sqrt(dx*dx + dy*dy);
-    if (dist < bestDist) {
-      bestDist = dist;
-      best = p;
+  for (let gy = 0; gy < res; gy++) {
+    for (let gx = 0; gx < res; gx++) {
+      const wx = (gx + 0.5) / res;
+      const wy = (gy + 0.5) / res;
+      if (isPointOnLand(wx, wy)) mask[gy * res + gx] = 1;
     }
   }
-  return best;
+
+  landMask = mask;
 }
 
-// ============================================================
-//  ПРОВЕРКА ТОЧКИ В ПОЛИГОНЕ
-// ============================================================
-function pointInPolygon(point, vertices) {
-  if (!vertices || vertices.length < 3) return false;
+function isCellOnLand(gx, gy) {
+  if (!landMask) return false;
+  return landMask[gy * gridRes + gx] === 1;
+}
+
+function pointInPolygon(x, y, vertices) {
   let inside = false;
   for (let i = 0, j = vertices.length - 1; i < vertices.length; j = i++) {
     const xi = vertices[i].x, yi = vertices[i].y;
     const xj = vertices[j].x, yj = vertices[j].y;
-    const intersect = ((yi > point.y) !== (yj > point.y)) &&
-      (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+    const intersect = ((yi > y) !== (yj > y)) &&
+      (x < ((xj - xi) * (y - yi)) / (yj - yi) + xi);
     if (intersect) inside = !inside;
   }
   return inside;
 }
 
-// ============================================================
-//  ДОБАВЛЕНИЕ
-// ============================================================
-function addPoint(x, y) {
-  // ИЗМЕНЕНО: координаты ограничены диапазоном [0,1]
-  x = Math.max(0, Math.min(1, x));
-  y = Math.max(0, Math.min(1, y));
-  const id = nextPointId++;
-  const pt = { id, x, y, isCity: false, cityType: null };
-  points.push(pt);
-  return pt;
-}
-
-function addRoad(pointIds, type = "road", props = {}) {
-  const id = nextRoadId++;
-  const road = { id, type, pointIds: [...pointIds], properties: props };
-  roads.push(road);
-  return road;
-}
-
-function addProvince(vertexIds, props = {}) {
-  const id = nextProvinceId++;
-  const prov = { id, type: "province", vertexIds: [...vertexIds], properties: props };
-  provinces.push(prov);
-  return prov;
+function isPointOnLand(x, y) {
+  for (const prov of worldData.provinces) {
+    if (prov.type !== "land") continue;
+    if (!prov._vertices || prov._vertices.length < 3) continue;
+    if (pointInPolygon(x, y, prov._vertices)) return true;
+  }
+  return false;
 }
 
 // ============================================================
-//  СЛИЯНИЕ ВЕРШИН ПРОВИНЦИЙ
+//  ФРАКЦИИ ГОРОДОВ
 // ============================================================
-// ИЗМЕНЕНО: объединяет близкие вершины разных провинций в одну точку.
-function mergeNearbyVertices() {
-  const vertexIdsByProvince = provinces.map(prov => new Set(prov.vertexIds));
-  const provinceIndexesByPoint = new Map();
+function autoSplitFactions() {
+  for (const p of worldData.points) {
+    if (!p.isCity) continue;
+    p._owner = p.x < 0.5 ? 1 : 2;
+  }
+  statusEl.textContent = "🎨 Авто-разделение: лево = игрок, право = ИИ";
+  invalidateField();
+}
 
-  for (let i = 0; i < provinces.length; i++) {
-    for (const id of vertexIdsByProvince[i]) {
-      if (!provinceIndexesByPoint.has(id)) provinceIndexesByPoint.set(id, []);
-      provinceIndexesByPoint.get(id).push(i);
+function randomFactions() {
+  for (const p of worldData.points) {
+    if (!p.isCity) continue;
+    const r = Math.random();
+    if (r < 0.4) p._owner = 1;
+    else if (r < 0.8) p._owner = 2;
+    else p._owner = 0;
+  }
+  statusEl.textContent = "🎲 Случайные фракции";
+  invalidateField();
+}
+
+function allPlayer() {
+  for (const p of worldData.points) {
+    if (!p.isCity) continue;
+    p._owner = 1;
+  }
+  statusEl.textContent = "🟦 Все города — игроку";
+  invalidateField();
+}
+
+function clearFactions() {
+  for (const p of worldData.points) {
+    if (!p.isCity) continue;
+    p._owner = 0;
+  }
+  statusEl.textContent = "⬜ Сброшено";
+  invalidateField();
+}
+
+// ============================================================
+//  ШУМ — стабильный хеш (mulberry-стиль, без sin)
+// ============================================================
+function hash2u(x, y) {
+  let h = (x | 0) * 0x27d4eb2d ^ (y | 0) * 0x165667b1;
+  h = Math.imul(h ^ (h >>> 15), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+function noise2(x, y) {
+  const xi = Math.floor(x), yi = Math.floor(y);
+  const xf = x - xi, yf = y - yi;
+
+  const u = xf * xf * (3 - 2 * xf);
+  const v = yf * yf * (3 - 2 * yf);
+
+  const a = hash2u(xi,     yi);
+  const b = hash2u(xi + 1, yi);
+  const c = hash2u(xi,     yi + 1);
+  const d = hash2u(xi + 1, yi + 1);
+
+  return (a * (1 - u) + b * u) * (1 - v) +
+         (c * (1 - u) + d * u) * v;
+}
+
+function noiseAt(x, y) {
+  return noise2(x * 8, y * 8) * 2 - 1;
+}
+
+// ============================================================
+//  SOFT-MIN
+// ============================================================
+function softMin(distances, K) {
+  if (!distances.length) return Infinity;
+  if (K <= 1e-6) {
+    let m = Infinity;
+    for (const d of distances) if (d < m) m = d;
+    return m;
+  }
+
+  let sum = 0;
+  for (const d of distances) sum += Math.exp(-d / K);
+  return -K * Math.log(sum);
+}
+
+// ============================================================
+//  ПОЛЕ ДЛЯ КЛЕТКИ
+// ============================================================
+function computeCellField(wx, wy) {
+  const dPlayer = [];
+  const dAi = [];
+
+  let nP = null;
+  let nPd = Infinity;
+  let nA = null;
+  let nAd = Infinity;
+
+  for (const p of worldData.points) {
+    if (!p.isCity) continue;
+    const owner = p._owner || 0;
+    if (owner === 0) continue;
+
+    const dx = wx - p.x;
+    const dy = wy - p.y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+
+    if (owner === 1) {
+      dPlayer.push(d);
+      if (d < nPd) { nPd = d; nP = p; }
+    } else if (owner === 2) {
+      dAi.push(d);
+      if (d < nAd) { nAd = d; nA = p; }
     }
   }
 
-  const pointById = new Map(points.map(p => [p.id, p]));
-  const parent = new Map(points.map(p => [p.id, p.id]));
+  let dP = softMin(dPlayer, softK);
+  let dA = softMin(dAi, softK);
 
-  function find(id) {
-    let root = id;
-    while (parent.get(root) !== root) root = parent.get(root);
-    while (parent.get(id) !== id) {
-      const next = parent.get(id);
-      parent.set(id, root);
-      id = next;
-    }
-    return root;
-  }
+  let reachBonus = 0;
 
-  function union(a, b) {
-    const ra = find(a);
-    const rb = find(b);
-    if (ra === rb) return false;
-    parent.set(rb, ra);
-    return true;
-  }
+  for (const u of units) {
+    const dx = wx - u.x;
+    const dy = wy - u.y;
+    const dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < UNIT_INFLUENCE) {
+      const t = 1 - dist / UNIT_INFLUENCE;
+      const influence = t * t;
 
-  let mergeCount = 0;
-  const ids = [...pointById.keys()];
-
-  // ИЗМЕНЕНО: сравниваем только вершины, принадлежащие разным провинциям.
-  for (let i = 0; i < ids.length; i++) {
-    const aId = ids[i];
-    const aProvinces = provinceIndexesByPoint.get(aId);
-    if (!aProvinces) continue;
-    const a = pointById.get(aId);
-    if (!a) continue;
-
-    for (let j = i + 1; j < ids.length; j++) {
-      const bId = ids[j];
-      const bProvinces = provinceIndexesByPoint.get(bId);
-      if (!bProvinces) continue;
-
-      const belongsToDifferentProvince = aProvinces.some(ai =>
-        bProvinces.some(bi => ai !== bi)
-      );
-      if (!belongsToDifferentProvince) continue;
-
-      const b = pointById.get(bId);
-      if (!b) continue;
-
-      const dx = a.x - b.x;
-      const dy = a.y - b.y;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-
-      if (dist < 0.005 && union(aId, bId)) mergeCount++;
+      if (u.owner === 1) {
+        dP -= influence * UNIT_PUSH_OWN;
+        dA += influence * UNIT_PUSH_ENEMY;
+        reachBonus = Math.max(reachBonus, influence * UNIT_REACH_BONUS);
+      } else if (u.owner === 2) {
+        dA -= influence * UNIT_PUSH_OWN;
+        dP += influence * UNIT_PUSH_ENEMY;
+        reachBonus = Math.max(reachBonus, influence * UNIT_REACH_BONUS);
+      }
     }
   }
 
-  if (mergeCount === 0) {
-    alert("ℹ️ Близких вершин для объединения не найдено.");
-    return;
-  }
+  let d;
+  if (isFinite(dP) && isFinite(dA)) d = Math.min(dP, dA);
+  else if (isFinite(dP)) d = dP;
+  else if (isFinite(dA)) d = dA;
+  else d = Infinity;
 
-  // ИЗМЕНЕНО: сохраняем состояние непосредственно перед изменением карты.
-  pushUndo();
+  const noiseFactor = noiseAmp > 0
+    ? 1 + noiseAmp * noiseAt(wx, wy)
+    : 1;
 
-  // ИЗМЕНЕНО: обновляем vertexIds всех провинций на канонические ID.
-  for (const prov of provinces) {
-    const mergedIds = [];
-    for (const id of prov.vertexIds) {
-      const root = find(id);
-      if (!mergedIds.includes(root)) mergedIds.push(root);
-    }
-    prov.vertexIds = mergedIds;
-  }
+  const reach = R - d * noiseFactor + reachBonus;
 
-  // ИЗМЕНЕНО: удаляем из points[] все объединённые дубликаты,
-  // оставляя одну каноническую точку для каждой группы.
-  const canonicalIds = new Set();
-  for (const id of pointById.keys()) canonicalIds.add(find(id));
-  points = points.filter(p => canonicalIds.has(p.id));
-
-  selectedObjects = [];
-  orphanPoints = [];
-  snapPreviewPointId = null;
-  updateObjectList();
-  updateStatus();
-  redraw();
-  alert(`✅ Объединено ${mergeCount} вершин.`);
-}
-
-// ============================================================
-//  UNDO
-// ============================================================
-function pushUndo() {
-  const snap = JSON.stringify({ points, roads, provinces, nextPointId, nextRoadId, nextProvinceId });
-  undoStack.push(snap);
-  if (undoStack.length > 100) undoStack.shift();
-}
-
-function restoreUndo() {
-  if (undoStack.length === 0) return;
-  const state = JSON.parse(undoStack.pop());
-  points = state.points || [];
-  roads = state.roads || [];
-  provinces = state.provinces || [];
-  nextPointId = state.nextPointId || 1;
-  nextRoadId = state.nextRoadId || 1;
-  nextProvinceId = state.nextProvinceId || 1;
-  selectedObjects = [];
-  currentPolyline = [];
-  currentPolygon = [];
-  tracePoints = [];
-  provincePaintPoints = [];
-  connectPoints = [];
-  orphanPoints = [];
-  isPaintingProvince = false;
-  isTracing = false;
-  draggedPointId = null;
-  snapPreviewPointId = null;
-  updateStatus();
-  redraw();
-  updateObjectList();
-}
-
-// ============================================================
-//  РЕЖИМЫ
-// ============================================================
-function setMode(newMode) {
-  if (mode === "trace" && isTracing) finishTrace();
-  if (mode === "province_paint" && isPaintingProvince) finishProvincePaint();
-
-  mode = newMode;
-  selectedObjects = [];
-  currentPolyline = [];
-  currentPolygon = [];
-  tracePoints = [];
-  provincePaintPoints = [];
-  connectPoints = [];
-  isPaintingProvince = false;
-  isTracing = false;
-  draggedPointId = null;
-  snapPreviewPointId = null;
-
-  document.querySelectorAll("#modeButtons button").forEach(btn => {
-    btn.classList.toggle("active", btn.dataset.mode === mode);
-  });
-  updateStatus();
-  redraw();
-}
-
-function updateStatus() {
-  if (mode === "trace") {
-    statusEl.textContent = isTracing ? `🟢 Обводка: ${tracePoints.length} точек (двойной клик)` : "⏸️ Кликните на карте";
-    statusEl.className = isTracing ? "active" : "";
-  } else if (mode === "province_paint") {
-    statusEl.textContent = isPaintingProvince ? `🖌️ Рисование: ${provincePaintPoints.length} точек (замкните для создания провинции)` : "🖌️ Зажмите ЛКМ и ведите для рисования границы";
-    statusEl.className = isPaintingProvince ? "active" : "";
-  } else if (mode === "connect") {
-    statusEl.textContent = connectPoints.length > 0 ? `🔗 Соединение: ${connectPoints.length} точек (кликните для добавления)` : "🔗 Кликайте по точкам для соединения";
-    statusEl.className = connectPoints.length > 0 ? "active" : "";
-  } else if (mode === "road" || mode === "rail" || mode === "river") {
-    // ИЗМЕНЕНО: информативный статус для рисования линий
-    const labels = { road: "🛤️ Дорога", rail: "🚆 Ж/Д", river: "🌊 Река" };
-    statusEl.textContent = currentPolyline.length
-      ? `${labels[mode]}: ${currentPolyline.length} точек — Enter: завершить, Esc: отменить`
-      : `${labels[mode]}: кликните для первой точки`;
-    statusEl.className = currentPolyline.length ? "active" : "";
-  } else if (mode === "land") {
-    // ИЗМЕНЕНО: информативный статус для рисования суши
-    statusEl.textContent = currentPolygon.length
-      ? `🟩 Суша: ${currentPolygon.length} точек — Enter: завершить, Esc: отменить`
-      : "🟩 Суша: кликните для первой точки";
-    statusEl.className = currentPolygon.length ? "active" : "";
+  let s;
+  if (nP && nA) {
+    const dx = nA.x - nP.x;
+    const dy = nA.y - nP.y;
+    const distPA = Math.sqrt(dx * dx + dy * dy);
+    if (distPA < 1e-6) s = 0;
+    else s = (nAd * nAd - nPd * nPd) / (2 * distPA);
+  } else if (nP) {
+    s = +Infinity;
+  } else if (nA) {
+    s = -Infinity;
   } else {
-    statusEl.textContent = `⏸️ Режим: ${mode}${getSelectionCountText()}`;
-    statusEl.className = "";
+    s = 0;
   }
+
+  return { reach, s };
 }
 
 // ============================================================
-//  ОБВОДКА (TRACE) — СОЗДАЁТ СУШУ (TERRITORY)
+//  БУФЕРЫ ПОЛЯ
 // ============================================================
-function startTrace(wx, wy) {
-  if (mode !== "trace") return;
-  pushUndo();
-  isTracing = true;
-  tracePoints = [];
+function rebuildFieldBuffers() {
+  const total = gridRes * gridRes;
+  cellReachCurrent = new Float32Array(total);
+  cellReachTarget  = new Float32Array(total);
+  cellSCurrent     = new Float32Array(total);
+  cellSTarget      = new Float32Array(total);
 
-  // ИЗМЕНЕНО: при старте обводки сначала пытаемся примагнититься к существующей вершине.
-  const nearest = findNearestPoint(wx, wy);
-  const pt = nearest || addPoint(wx, wy);
-  tracePoints.push(pt.id);
-  snapPreviewPointId = nearest ? nearest.id : null;
-  updateStatus();
-  redraw();
+  cellReachCurrent.fill(-1);
+  cellReachTarget.fill(-1);
+  cellSCurrent.fill(0);
+  cellSTarget.fill(0);
 }
 
-function continueTrace(wx, wy) {
-  if (!isTracing || mode !== "trace") return;
+function computeTargetField() {
+  if (!cellReachTarget) return;
 
-  // ИЗМЕНЕНО: визуально показываем вершину, к которой будет выполнен snap.
-  const nearest = findNearestPoint(wx, wy);
-  snapPreviewPointId = nearest ? nearest.id : null;
+  for (let gy = 0; gy < gridRes; gy++) {
+    for (let gx = 0; gx < gridRes; gx++) {
+      const idx = gy * gridRes + gx;
 
-  const lastId = tracePoints[tracePoints.length - 1];
-  const lastPt = points.find(p => p.id === lastId);
-  if (!lastPt) return;
+      if (!isCellOnLand(gx, gy)) {
+        cellReachTarget[idx] = -1;
+        cellSTarget[idx] = 0;
+        continue;
+      }
 
-  const target = nearest || { x: wx, y: wy };
-  const dx = target.x - lastPt.x;
-  const dy = target.y - lastPt.y;
-  if (Math.sqrt(dx*dx + dy*dy) > TRACE_SNAP_DIST) {
-    const targetPoint = nearest || addPoint(wx, wy);
-    if (!tracePoints.includes(targetPoint.id)) tracePoints.push(targetPoint.id);
-  }
-  redraw();
-}
+      const wx = (gx + 0.5) / gridRes;
+      const wy = (gy + 0.5) / gridRes;
 
-function finishTrace() {
-  if (!isTracing || mode !== "trace") return;
-  isTracing = false;
-  snapPreviewPointId = null;
+      const { reach, s } = computeCellField(wx, wy);
 
-  // ИЗМЕНЕНО: сохраняем исходные ID для очистки отброшенных точек
-  const originalIds = [...tracePoints];
+      cellReachTarget[idx] = reach;
 
-  if (tracePoints.length < 3) {
-    points = points.filter(p => !originalIds.includes(p.id));
-    tracePoints = [];
-    updateStatus();
-    updateObjectList();
-    redraw();
-    alert("Недостаточно точек для создания провинции");
-    return;
-  }
-
-  const simplified = simplifyLine(tracePoints, 0.004);
-
-  if (simplified.length < 3) {
-    points = points.filter(p => !originalIds.includes(p.id));
-    tracePoints = [];
-    updateStatus();
-    updateObjectList();
-    redraw();
-    alert("Недостаточно точек для создания провинции");
-    return;
-  }
-
-  // ИЗМЕНЕНО: удаляем точки, отброшенные симплификацией
-  const kept = new Set(simplified);
-  points = points.filter(p => !originalIds.includes(p.id) || kept.has(p.id));
-
-  const prov = addProvince(simplified, { name: `Territory_${provinces.length+1}`, owner: 0 });
-  selectedObjects = [{ type: "province", id: prov.id }];
-
-  tracePoints = [];
-  updateStatus();
-  updateObjectList();
-  redraw();
-}
-// ============================================================
-//  РИСОВАНИЕ ПРОВИНЦИЙ КИСТОЧКОЙ (PROVINCE)
-// ============================================================
-function startProvincePaint(wx, wy) {
-  if (mode !== "province_paint") return;
-  pushUndo();
-  isPaintingProvince = true;
-  provincePaintPoints = [];
-
-  // ИЗМЕНЕНО: при старте рисования провинции используем общий snap.
-  const nearest = findNearestPoint(wx, wy);
-  const pt = nearest || addPoint(wx, wy);
-  provincePaintPoints.push(pt.id);
-  snapPreviewPointId = nearest ? nearest.id : null;
-  updateStatus();
-  redraw();
-}
-
-function continueProvincePaint(wx, wy) {
-  if (!isPaintingProvince || mode !== "province_paint") return;
-
-  // ИЗМЕНЕНО: показываем зелёную точку потенциального snap.
-  const nearest = findNearestPoint(wx, wy);
-  snapPreviewPointId = nearest ? nearest.id : null;
-
-  const lastId = provincePaintPoints[provincePaintPoints.length - 1];
-  const lastPt = points.find(p => p.id === lastId);
-  if (!lastPt) return;
-
-  const target = nearest || { x: wx, y: wy };
-  const dx = target.x - lastPt.x;
-  const dy = target.y - lastPt.y;
-  if (Math.sqrt(dx*dx + dy*dy) > PAINT_SNAP_DIST) {
-    const targetPoint = nearest || addPoint(wx, wy);
-    if (!provincePaintPoints.includes(targetPoint.id)) provincePaintPoints.push(targetPoint.id);
-  }
-  redraw();
-}
-
-function finishProvincePaint() {
-  if (!isPaintingProvince || mode !== "province_paint") return;
-  isPaintingProvince = false;
-  snapPreviewPointId = null;
-
-  // ИЗМЕНЕНО: сохраняем исходные ID для очистки отброшенных точек
-  const originalIds = [...provincePaintPoints];
-
-  if (provincePaintPoints.length < 3) {
-    points = points.filter(p => !originalIds.includes(p.id));
-    provincePaintPoints = [];
-    updateStatus();
-    updateObjectList();
-    redraw();
-    alert("Недостаточно точек для создания провинции");
-    return;
-  }
-
-  const first = points.find(p => p.id === provincePaintPoints[0]);
-  const last = points.find(p => p.id === provincePaintPoints[provincePaintPoints.length - 1]);
-
-  if (!first || !last) {
-    points = points.filter(p => !originalIds.includes(p.id));
-    provincePaintPoints = [];
-    updateStatus();
-    updateObjectList();
-    redraw();
-    alert("Контур не замкнут");
-    return;
-  }
-
-  const dx = last.x - first.x;
-  const dy = last.y - first.y;
-  if (Math.sqrt(dx*dx + dy*dy) >= 0.01) {
-    points = points.filter(p => !originalIds.includes(p.id));
-    provincePaintPoints = [];
-    updateStatus();
-    updateObjectList();
-    redraw();
-    alert("Контур не замкнут");
-    return;
-  }
-
-  const simplified = simplifyLine(provincePaintPoints, 0.004);
-
-  if (simplified.length < 3) {
-    points = points.filter(p => !originalIds.includes(p.id));
-    provincePaintPoints = [];
-    updateStatus();
-    updateObjectList();
-    redraw();
-    alert("Недостаточно точек для создания провинции");
-    return;
-  }
-
-  // ИЗМЕНЕНО: удаляем точки, отброшенные симплификацией
-  const kept = new Set(simplified);
-  points = points.filter(p => !originalIds.includes(p.id) || kept.has(p.id));
-
-  const prov = addProvince(simplified, { name: `Province_${provinces.length+1}`, owner: 0 });
-  selectedObjects = [{ type: "province", id: prov.id }];
-
-  provincePaintPoints = [];
-  updateStatus();
-  updateObjectList();
-  redraw();
-}
-// ============================================================
-//  СОЕДИНЕНИЕ (CONNECT)
-// ============================================================
-function startConnect(wx, wy) {
-  if (mode !== "connect") return;
-  const nearest = findNearestPoint(wx, wy);
-  if (nearest) {
-    if (!connectPoints.includes(nearest.id)) {
-      connectPoints.push(nearest.id);
-      updateStatus();
-      redraw();
-    }
-    if (connectPoints.length >= 2) {
-      pushUndo();
-      const road = addRoad([...connectPoints], "road");
-      selectedObjects = [{ type: "road", id: road.id }];
-      connectPoints = [];
-      updateObjectList();
-      updateStatus();
-      redraw();
+      if (!isFinite(s)) {
+        cellSTarget[idx] = s > 0 ? 1e6 : -1e6;
+      } else {
+        cellSTarget[idx] = s;
+      }
     }
   }
 }
 
 // ============================================================
-//  УДАЛЕНИЕ
+//  ИНКРЕМЕНТАЛЬНЫЙ ПЕРЕСЧЁТ ВОКРУГ ЮНИТОВ
 // ============================================================
-function deleteSelected() {
-  // ИЗМЕНЕНО: одно подтверждение и удаление всего множественного выделения
-  if (!selectedObjects.length) return;
-  if (!confirm(`Удалить ${selectedObjects.length} выбранных объектов?`)) return;
-  pushUndo();
+function recomputeCellAtIndex(gx, gy) {
+  if (gx < 0 || gy < 0 || gx >= gridRes || gy >= gridRes) return;
+  const idx = gy * gridRes + gx;
 
-  const pointIds = new Set(selectedObjects.filter(o => o.type === 'point').map(o => o.id));
-  const roadIds = new Set(selectedObjects.filter(o => o.type === 'road').map(o => o.id));
-  const provinceIds = new Set(selectedObjects.filter(o => o.type === 'province').map(o => o.id));
-
-  roads = roads.filter(r => !roadIds.has(r.id));
-  provinces = provinces.filter(p => !provinceIds.has(p.id));
-
-  if (pointIds.size) {
-    for (const road of roads) road.pointIds = road.pointIds.filter(id => !pointIds.has(id));
-    for (const prov of provinces) prov.vertexIds = prov.vertexIds.filter(id => !pointIds.has(id));
-    points = points.filter(p => !pointIds.has(p.id));
-    roads = roads.filter(r => r.pointIds.length >= 2);
-    provinces = provinces.filter(p => p.vertexIds.length >= 3);
-  }
-
-  selectedObjects = [];
-  orphanPoints = [];
-  draggedPointId = null;
-  updateObjectList();
-  redraw();
-}
-
-function clearMap() {
-  if (!confirm("Удалить всё?")) return;
-  pushUndo();
-  points = [];
-  roads = [];
-  provinces = [];
-  selectedObjects = [];
-  currentPolyline = [];
-  currentPolygon = [];
-  tracePoints = [];
-  provincePaintPoints = [];
-  connectPoints = [];
-  orphanPoints = [];
-  isPaintingProvince = false;
-  isTracing = false;
-  redraw();
-  updateObjectList();
-  updateStatus();
-}
-
-function setCityType(type) {
-  // ИЗМЕНЕНО: назначение типа всем выделенным точкам
-  const pointIds = selectedObjects.filter(obj => obj.type === 'point').map(obj => obj.id);
-  if (!pointIds.length) {
-    alert("Сначала выберите точку на карте");
+  if (!isCellOnLand(gx, gy)) {
+    cellReachTarget[idx] = -1;
+    cellSTarget[idx] = 0;
     return;
   }
-  pushUndo();
-  for (const id of pointIds) {
-    const point = points.find(p => p.id === id);
-    if (point) {
-      point.isCity = true;
-      point.cityType = type;
-    }
+
+  const wx = (gx + 0.5) / gridRes;
+  const wy = (gy + 0.5) / gridRes;
+  const { reach, s } = computeCellField(wx, wy);
+
+  cellReachTarget[idx] = reach;
+  if (!isFinite(s)) cellSTarget[idx] = s > 0 ? 1e6 : -1e6;
+  else cellSTarget[idx] = s;
+}
+
+function recomputeAroundUnit(u) {
+  const radiusWorld = R + UNIT_INFLUENCE + 0.02;
+  const gx0 = Math.max(0, Math.floor((u.x - radiusWorld) * gridRes));
+  const gx1 = Math.min(gridRes - 1, Math.ceil((u.x + radiusWorld) * gridRes));
+  const gy0 = Math.max(0, Math.floor((u.y - radiusWorld) * gridRes));
+  const gy1 = Math.min(gridRes - 1, Math.ceil((u.y + radiusWorld) * gridRes));
+
+  for (let gy = gy0; gy <= gy1; gy++)
+    for (let gx = gx0; gx <= gx1; gx++)
+      recomputeCellAtIndex(gx, gy);
+}
+
+function recomputeUnionAroundUnits(movedUnits) {
+  for (const u of movedUnits) recomputeAroundUnit(u);
+}
+
+function snapReachAroundUnits(movedUnits) {
+  const radiusWorld = R + UNIT_INFLUENCE + 0.02;
+  const touched = new Uint8Array(gridRes * gridRes);
+
+  for (const u of movedUnits) {
+    const gx0 = Math.max(0, Math.floor((u.x - radiusWorld) * gridRes));
+    const gx1 = Math.min(gridRes - 1, Math.ceil((u.x + radiusWorld) * gridRes));
+    const gy0 = Math.max(0, Math.floor((u.y - radiusWorld) * gridRes));
+    const gy1 = Math.min(gridRes - 1, Math.ceil((u.y + radiusWorld) * gridRes));
+    for (let gy = gy0; gy <= gy1; gy++)
+      for (let gx = gx0; gx <= gx1; gx++)
+        touched[gy * gridRes + gx] = 1;
   }
-  redraw();
-  updateObjectList();
+
+  for (let i = 0; i < touched.length; i++) {
+    if (!touched[i]) continue;
+    cellReachCurrent[i] = cellReachTarget[i];
+    cellSCurrent[i] = cellSTarget[i];
+  }
 }
 
 // ============================================================
-//  УПРОЩЕНИЕ ЛИНИИ
+//  ПЕРЕХОДЫ
 // ============================================================
-function simplifyLine(pointIds, tolerance = 0.004) {
-  if (pointIds.length < 3) return pointIds;
-  const pts = pointIds.map(id => points.find(p => p.id === id)).filter(p => p);
-  if (pts.length < 3) return pointIds;
-  const result = [];
-  const stack = [{ start: 0, end: pts.length - 1 }];
-  while (stack.length > 0) {
-    const { start, end } = stack.pop();
-    if (end - start <= 1) {
-      if (!result.includes(start)) result.push(start);
-      if (!result.includes(end)) result.push(end);
+function snapCurrentToTarget() {
+  if (!cellReachCurrent) return;
+  cellReachCurrent.set(cellReachTarget);
+  cellSCurrent.set(cellSTarget);
+  transitionActive = false;
+}
+
+function invalidateField() {
+  if (!cellReachCurrent) return;
+
+  computeTargetField();
+  transitionStart = performance.now();
+  transitionActive = true;
+
+  redraw();
+}
+
+function stepTransition(now) {
+  if (!transitionActive) return false;
+
+  const elapsed = now - transitionStart;
+  const t = Math.min(1, elapsed / Math.max(1, transitionMs));
+
+  const e = 1 - Math.pow(1 - t, 3);
+
+  const n = cellReachCurrent.length;
+  for (let i = 0; i < n; i++) {
+    const cr = cellReachCurrent[i];
+    const tr = cellReachTarget[i];
+
+    if (cr <= 0 && tr <= 0) {
+      cellReachCurrent[i] = tr;
+      cellSCurrent[i] = cellSTarget[i];
       continue;
     }
-    let maxDist = 0, maxIdx = start;
-    const p1 = pts[start], p2 = pts[end];
-    const dx = p2.x - p1.x, dy = p2.y - p1.y;
-    const len = Math.sqrt(dx*dx + dy*dy);
-    for (let i = start + 1; i < end; i++) {
-      const p = pts[i];
-      let dist;
-      if (len < 0.0001) {
-        dist = Math.sqrt((p.x - p1.x)**2 + (p.y - p1.y)**2);
-      } else {
-        const t = ((p.x - p1.x) * dx + (p.y - p1.y) * dy) / (len * len);
-        if (t < 0) dist = Math.sqrt((p.x - p1.x)**2 + (p.y - p1.y)**2);
-        else if (t > 1) dist = Math.sqrt((p.x - p2.x)**2 + (p.y - p2.y)**2);
-        else {
-          const px = p1.x + t * dx, py = p1.y + t * dy;
-          dist = Math.sqrt((p.x - px)**2 + (p.y - py)**2);
-        }
-      }
-      if (dist > maxDist) { maxDist = dist; maxIdx = i; }
-    }
-    if (maxDist > tolerance) {
-      stack.push({ start, end: maxIdx });
-      stack.push({ start: maxIdx, end });
-    } else {
-      if (!result.includes(start)) result.push(start);
-      if (!result.includes(end)) result.push(end);
-    }
+
+    cellReachCurrent[i] = cr + (tr - cr) * e;
+
+    const cs = cellSCurrent[i];
+    const ts = cellSTarget[i];
+    cellSCurrent[i] = cs + (ts - cs) * e;
   }
-  result.sort((a, b) => a - b);
-  return result.map(i => pointIds[i]);
+
+  if (t >= 1) {
+    transitionActive = false;
+  }
+
+  return true;
 }
 
 // ============================================================
-//  ОТРИСОВКА
+//  ОСНОВНОЙ REDRAW
 // ============================================================
 function redraw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  // ИЗМЕНЕНО: rect вычисляется один раз до цикла по провинциям
-  const rect = canvas.getBoundingClientRect();
+  ctx.fillStyle = "#0a0d14";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-  if (bgImageLoaded && bgImage) {
-    ctx.save();
-    ctx.translate(offsetX, offsetY);
-    ctx.scale(zoom, zoom);
-    ctx.drawImage(bgImage, 0, 0, canvas.width, canvas.height);
-    ctx.restore();
+  if (!worldData.provinces.length) {
+    drawHint();
+    return;
   }
 
-  // ===== ПРОВИНЦИИ (ВСЕ) — С ПОДСВЕТКОЙ =====
-  for (const prov of provinces) {
-    if (prov.vertexIds.length < 3) continue;
+  drawProvincesBackdrop();
 
-    const mouseX = (lastMouseX - rect.left);
-    const mouseY = (lastMouseY - rect.top);
-    const { x: wx, y: wy } = screenToWorld(mouseX, mouseY);
+  if (renderStyle === "front") {
+    drawFrontline();
+  } else if (renderStyle === "territory") {
+    drawTerritory();
+  } else if (renderStyle === "noise") {
+    drawTerritory();
+  } else {
+    drawTerritory();
+    drawFrontline();
+  }
 
-    const vertices = prov.vertexIds.map(id => points.find(p => p.id === id)).filter(p => p);
-    if (vertices.length < 3) continue;
+  drawCities();
+  drawUnits();
+}
 
-    const isHovered = pointInPolygon({ x: wx, y: wy }, vertices);
-    // ИЗМЕНЕНО: множественное выделение провинций
-    const isSelected = isObjectSelected('province', prov.id);
+// ============================================================
+//  АНИМАЦИОННЫЙ ЦИКЛ
+// ============================================================
+function animationLoop(now) {
+  if (paused) {
+    requestAnimationFrame(animationLoop);
+    return;
+  }
 
-    const name = prov.properties?.name || '';
+  const changed = stepTransition(now);
 
-    ctx.save();
+  const moved = [];
+  for (const u of units) {
+    if (u.targetX !== undefined && u.targetY !== undefined) {
+      const dx = u.targetX - u.x;
+      const dy = u.targetY - u.y;
+      const dist = Math.hypot(dx, dy);
 
-    let fillColor = "rgba(255,200,100,0.2)";
-    let strokeColor = "#ffaa44";
-    let lineWidth = 3;
-    let shadowBlur = 10;
-
-    if (isSelected) {
-      // ИЗМЕНЕНО: жёлтая подсветка выбранной провинции
-      fillColor = "rgba(255,255,0,0.30)";
-      strokeColor = "#ffff00";
-      lineWidth = 4;
-      shadowBlur = 25;
-    } else if (isHovered) {
-      fillColor = "rgba(255,200,100,0.30)";
-      strokeColor = "#ffcc44";
-      lineWidth = 3.5;
-      shadowBlur = 18;
-    }
-
-    ctx.fillStyle = fillColor;
-    ctx.strokeStyle = strokeColor;
-    ctx.lineWidth = lineWidth;
-    ctx.shadowColor = strokeColor;
-    ctx.shadowBlur = shadowBlur;
-
-    ctx.beginPath();
-    for (let i = 0; i < vertices.length; i++) {
-      const s = worldToScreen(vertices[i].x, vertices[i].y);
-      if (i === 0) ctx.moveTo(s.x, s.y);
-      else ctx.lineTo(s.x, s.y);
-    }
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
-
-    ctx.shadowBlur = 0;
-    ctx.restore();
-
-    // Подпись для выбранной/наведённой
-    if (isSelected || isHovered) {
-      let cx = 0, cy = 0;
-      for (const v of vertices) {
-        cx += v.x;
-        cy += v.y;
+      if (dist > 0.005) {
+        const step = Math.min(dist, u.speed);
+        u.x += (dx / dist) * step;
+        u.y += (dy / dist) * step;
+        moved.push(u);
       }
-      cx /= vertices.length;
-      cy /= vertices.length;
-      const center = worldToScreen(cx, cy);
-
-      ctx.save();
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "12px Segoe UI";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.shadowColor = "rgba(0,0,0,0.9)";
-      ctx.shadowBlur = 8;
-      ctx.fillText(name || `#${prov.id}`, center.x, center.y);
-      ctx.shadowBlur = 0;
-      ctx.restore();
     }
   }
 
-  // ===== ДОРОГИ =====
-  for (const road of roads) {
-    if (road.pointIds.length < 2) continue;
-    ctx.save();
-    const colors = { road: "#ffffff", rail: "#ffcc00", river: "#3399ff" };
-    // ИЗМЕНЕНО: жёлтая подсветка выбранных дорог
-    const roadSelected = isObjectSelected('road', road.id);
-    ctx.strokeStyle = roadSelected ? "#ffff00" : (colors[road.type] || "#ffffff");
-    ctx.lineWidth = roadSelected ? 5 : (road.type === "river" ? 3 : 2);
-    if (road.type === "river") ctx.setLineDash([6, 4]);
-    ctx.shadowColor = "rgba(0,0,0,0.8)";
-    ctx.shadowBlur = 6;
-    ctx.beginPath();
-    for (let i = 0; i < road.pointIds.length; i++) {
-      const pt = points.find(p => p.id === road.pointIds[i]);
-      if (!pt) continue;
-      const s = worldToScreen(pt.x, pt.y);
-      if (i === 0) ctx.moveTo(s.x, s.y);
-      else ctx.lineTo(s.x, s.y);
-    }
-    ctx.stroke();
-    ctx.restore();
+  if (moved.length) {
+    // ИНКРЕМЕНТ: только ячейки в радиусе влияния движущихся юнитов
+    recomputeUnionAroundUnits(moved);
+    snapReachAroundUnits(moved);
   }
 
-  // ===== ТОЧКИ =====
-  for (const p of points) {
-    const s = worldToScreen(p.x, p.y);
-    ctx.save();
-    ctx.shadowColor = "rgba(0,0,0,0.8)";
-    ctx.shadowBlur = 8;
-
-    const isOrphan = orphanPoints.includes(p.id);
-
-    if (p.isCity) {
-      const size = 14, half = size/2;
-      const colors = { city: "#3399ff", port: "#33cc33", airfield: "#ff66cc", farm: "#8B8000", mine: "#A0522D", factory: "#6A0DAD", trade: "#DAA520" };
-      ctx.fillStyle = colors[p.cityType] || "#3399ff";
-      ctx.fillRect(s.x-half, s.y-half, size, size);
-      ctx.strokeStyle = "#000";
-      ctx.lineWidth = 1.5;
-      ctx.strokeRect(s.x-half, s.y-half, size, size);
-      ctx.fillStyle = "#fff";
-      ctx.font = "9px monospace";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      const icons = { city: "🏙️", port: "⚓", airfield: "🛩️", farm: "🌾", mine: "⛏️", factory: "🏭", trade: "💰" };
-      ctx.fillText(icons[p.cityType] || "🏙️", s.x, s.y+1);
-    } else {
-      const isTracePoint = tracePoints.includes(p.id);
-      const isPaintPoint = provincePaintPoints.includes(p.id);
-      const isConnectPoint = connectPoints.includes(p.id);
-      ctx.fillStyle = isTracePoint ? "#4a9eff" : isPaintPoint ? "#4a9a6a" : isConnectPoint ? "#ffaa44" : "#cccccc";
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, isTracePoint || isPaintPoint || isConnectPoint ? 5 : 3.5, 0, Math.PI*2);
-      ctx.fill();
-    }
-
-    // ИЗМЕНЕНО: зелёная подсветка точки, к которой примагничивается курсор
-    if (snapPreviewPointId === p.id && (isTracing || isPaintingProvince)) {
-      ctx.strokeStyle = "#33ff66";
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = "#33ff66";
-      ctx.shadowBlur = 14;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, 9, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
-
-    // ИЗМЕНЕНО: выбранные точки подсвечиваются жёлтым кругом
-    if (isObjectSelected('point', p.id)) {
-      ctx.strokeStyle = "#ffff00";
-      ctx.lineWidth = 2.5;
-      ctx.shadowColor = "#ffff00";
-      ctx.shadowBlur = 12;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, 7, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
-
-    if (isOrphan) {
-      ctx.strokeStyle = "#ffaa44";
-      ctx.lineWidth = 3;
-      ctx.shadowColor = "#ffaa44";
-      ctx.shadowBlur = 15;
-      ctx.beginPath();
-      ctx.arc(s.x, s.y, 9, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.shadowBlur = 0;
-    }
-
-    ctx.restore();
+  if (changed || transitionActive || moved.length) {
+    redraw();
   }
 
-  // ===== ЛИНИЯ ОБВОДКИ =====
-  if (isTracing && tracePoints.length > 1) {
-    ctx.save();
-    ctx.strokeStyle = "#4a9eff";
-    ctx.lineWidth = 3;
-    ctx.shadowColor = "#4a9eff";
-    ctx.shadowBlur = 15;
-    ctx.setLineDash([6, 4]);
-    ctx.beginPath();
-    for (let i = 0; i < tracePoints.length; i++) {
-      const pt = points.find(p => p.id === tracePoints[i]);
-      if (!pt) continue;
-      const s = worldToScreen(pt.x, pt.y);
-      if (i === 0) ctx.moveTo(s.x, s.y);
-      else ctx.lineTo(s.x, s.y);
-    }
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // ===== ЛИНИЯ РИСОВАНИЯ ПРОВИНЦИИ =====
-  if (isPaintingProvince && provincePaintPoints.length > 1) {
-    ctx.save();
-    ctx.strokeStyle = "#4a9a6a";
-    ctx.lineWidth = 3;
-    ctx.shadowColor = "#4a9a6a";
-    ctx.shadowBlur = 15;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    for (let i = 0; i < provincePaintPoints.length; i++) {
-      const pt = points.find(p => p.id === provincePaintPoints[i]);
-      if (!pt) continue;
-      const s = worldToScreen(pt.x, pt.y);
-      if (i === 0) ctx.moveTo(s.x, s.y);
-      else ctx.lineTo(s.x, s.y);
-    }
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // ===== ЛИНИЯ СОЕДИНЕНИЯ =====
-  if (connectPoints.length > 0) {
-    ctx.save();
-    ctx.strokeStyle = "#ffaa44";
-    ctx.lineWidth = 2;
-    ctx.shadowColor = "#ffaa44";
-    ctx.shadowBlur = 10;
-    ctx.setLineDash([4, 4]);
-    ctx.beginPath();
-    for (let i = 0; i < connectPoints.length; i++) {
-      const pt = points.find(p => p.id === connectPoints[i]);
-      if (!pt) continue;
-      const s = worldToScreen(pt.x, pt.y);
-      if (i === 0) ctx.moveTo(s.x, s.y);
-      else ctx.lineTo(s.x, s.y);
-    }
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  // ИЗМЕНЕНО: рамка выделения рисуется поверх всех объектов
-  drawSelectionBox();
+  requestAnimationFrame(animationLoop);
 }
 
 // ============================================================
-//  МЫШЬ
+//  ФОН ПРОВИНЦИЙ
 // ============================================================
-// ============================================================
-//  МЫШЬ — ВЫДЕЛЕНИЕ И ГРУППОВОЕ ПЕРЕМЕЩЕНИЕ
-// ============================================================
-// ИЗМЕНЕНО: состояние рамки выделения и группового drag
-let isSelectingBox = false;
-let selectionBoxStartX = 0, selectionBoxStartY = 0;
-let selectionBoxCurrentX = 0, selectionBoxCurrentY = 0;
-let groupDragStartX = 0, groupDragStartY = 0;
-let groupDragOriginalPositions = new Map();
-let dragUndoPushed = false;
+function drawProvincesBackdrop() {
+  for (const prov of worldData.provinces) {
+    if (!prov._vertices || prov._vertices.length < 3) continue;
 
-function normalizeSelectionBox() {
-  return {
-    left: Math.min(selectionBoxStartX, selectionBoxCurrentX),
-    right: Math.max(selectionBoxStartX, selectionBoxCurrentX),
-    top: Math.min(selectionBoxStartY, selectionBoxCurrentY),
-    bottom: Math.max(selectionBoxStartY, selectionBoxCurrentY)
-  };
-}
+    const isWater = prov.type === "water";
 
-function pointInSelectionBox(p, box) {
-  const s = worldToScreen(p.x, p.y);
-  return s.x >= box.left && s.x <= box.right && s.y >= box.top && s.y <= box.bottom;
-}
-
-function selectByBox() {
-  // ИЗМЕНЕНО: рамка выбирает точки, дороги и провинции по правилам ТЗ
-  const box = normalizeSelectionBox();
-  const width = box.right - box.left;
-  const height = box.bottom - box.top;
-  if (width < 4 && height < 4) return;
-
-  selectedObjects = [];
-
-  for (const p of points) {
-    if (pointInSelectionBox(p, box)) {
-      selectedObjects.push({ type: 'point', id: p.id });
-    }
-  }
-
-  for (const road of roads) {
-    const hit = road.pointIds.some(id => {
-      const p = points.find(pt => pt.id === id);
-      return p && pointInSelectionBox(p, box);
+    ctx.beginPath();
+    prov._vertices.forEach((v, i) => {
+      const s = worldToScreen(v.x, v.y);
+      if (i === 0) ctx.moveTo(s.x, s.y);
+      else ctx.lineTo(s.x, s.y);
     });
-    if (hit) selectedObjects.push({ type: 'road', id: road.id });
-  }
+    ctx.closePath();
 
-  for (const prov of provinces) {
-    const center = getProvinceCenter(prov);
-    if (center && pointInSelectionBox(center, box)) {
-      selectedObjects.push({ type: 'province', id: prov.id });
+    ctx.fillStyle = isWater
+      ? "rgba(20, 40, 80, 0.35)"
+      : "rgba(80, 90, 110, 0.08)";
+    ctx.fill();
+
+    ctx.strokeStyle = isWater
+      ? "rgba(60, 90, 140, 0.35)"
+      : "rgba(80, 90, 110, 0.2)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+  }
+}
+
+// ============================================================
+//  ТЕРРИТОРИЯ
+// ============================================================
+function drawTerritory() {
+  if (!cellReachCurrent) return;
+
+  const cellW = canvas.width / gridRes;
+  const cellH = canvas.height / gridRes;
+
+  const cPlayer = "rgba(50, 150, 255, 0.45)";
+  const cAi     = "rgba(255, 80, 80, 0.45)";
+
+  const Wworld = (contestedPx / 2) / canvas.width;
+
+  for (let gy = 0; gy < gridRes; gy++) {
+    for (let gx = 0; gx < gridRes; gx++) {
+      const idx = gy * gridRes + gx;
+
+      const reach = cellReachCurrent[idx];
+      if (reach <= 0) continue;
+
+      const s = cellSCurrent[idx];
+
+      const screenX = gx * cellW;
+      const screenY = gy * cellH;
+
+      if (Math.abs(s) < Wworld) {
+        const alt = (gx + gy) % 2 === 0;
+        ctx.fillStyle = alt
+          ? "rgba(255, 180, 80, 0.55)"
+          : "rgba(180, 130, 220, 0.55)";
+        ctx.fillRect(screenX, screenY, cellW + 1, cellH + 1);
+      } else if (s > 0) {
+        ctx.fillStyle = cPlayer;
+        ctx.fillRect(screenX, screenY, cellW + 1, cellH + 1);
+      } else {
+        ctx.fillStyle = cAi;
+        ctx.fillRect(screenX, screenY, cellW + 1, cellH + 1);
+      }
+    }
+  }
+}
+
+// ============================================================
+//  ФРОНТ — MARCHING SQUARES (s = 0)
+// ============================================================
+function drawFrontline() {
+  if (!cellSCurrent) return;
+
+  const cellW = canvas.width / gridRes;
+  const cellH = canvas.height / gridRes;
+
+  ctx.save();
+  ctx.lineWidth = frontWidth;
+  ctx.lineCap = "round";
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = "rgba(255, 230, 100, 0.95)";
+  ctx.setLineDash([8, 6]);
+
+  const S = (gx, gy) => {
+    if (gx < 0 || gy < 0 || gx >= gridRes || gy >= gridRes) return NaN;
+    const idx = gy * gridRes + gx;
+    const r = cellReachCurrent[idx];
+    if (r <= 0) return NaN;
+    const s = cellSCurrent[idx];
+    if (!isFinite(s)) return s > 0 ? 1e6 : -1e6;
+    return s;
+  };
+
+  const lerpZero = (gx1, gy1, gx2, gy2, s1, s2) => {
+    const t = s1 / (s1 - s2);
+    return {
+      x: (gx1 + (gx2 - gx1) * t) * cellW,
+      y: (gy1 + (gy2 - gy1) * t) * cellH,
+    };
+  };
+
+  // 4-битный case → пары рёбер (0=низ,1=право,2=верх,3=лево)
+  const EDGE_TABLE = [
+    [],                       // 0000
+    [[3, 0]],                 // 0001
+    [[0, 1]],                 // 0010
+    [[3, 1]],                 // 0011
+    [[1, 2]],                 // 0100
+    [[3, 2], [0, 1]],         // 0101 (седло)
+    [[0, 2]],                 // 0110
+    [[3, 2]],                 // 0111
+    [[2, 3]],                 // 1000
+    [[2, 0]],                 // 1001
+    [[0, 1], [2, 3]],         // 1010 (седло)
+    [[2, 1]],                 // 1011
+    [[1, 3]],                 // 1100
+    [[1, 0]],                 // 1101
+    [[0, 3]],                 // 1110
+    [],                       // 1111
+  ];
+
+  for (let gy = 0; gy < gridRes - 1; gy++) {
+    for (let gx = 0; gx < gridRes - 1; gx++) {
+      const s00 = S(gx,     gy);
+      const s10 = S(gx + 1, gy);
+      const s11 = S(gx + 1, gy + 1);
+      const s01 = S(gx,     gy + 1);
+
+      const v00 = isFinite(s00) ? (s00 > 0 ? 1 : 0) : 0;
+      const v10 = isFinite(s10) ? (s10 > 0 ? 1 : 0) : 0;
+      const v11 = isFinite(s11) ? (s11 > 0 ? 1 : 0) : 0;
+      const v01 = isFinite(s01) ? (s01 > 0 ? 1 : 0) : 0;
+
+      const c = v00 | (v10 << 1) | (v11 << 2) | (v01 << 3);
+      if (c === 0 || c === 15) continue;
+
+      const segs = EDGE_TABLE[c];
+      if (!segs.length) continue;
+
+      const edges = [
+        { a: [gx,     gy],     b: [gx + 1, gy],     sa: s00, sb: s10 }, // 0 низ
+        { a: [gx + 1, gy],     b: [gx + 1, gy + 1], sa: s10, sb: s11 }, // 1 право
+        { a: [gx,     gy + 1], b: [gx + 1, gy + 1], sa: s01, sb: s11 }, // 2 верх
+        { a: [gx,     gy],     b: [gx,     gy + 1], sa: s00, sb: s01 }, // 3 лево
+      ];
+
+      for (const [e1, e2] of segs) {
+        const E1 = edges[e1];
+        const E2 = edges[e2];
+        if (!isFinite(E1.sa) || !isFinite(E1.sb) || !isFinite(E2.sa) || !isFinite(E2.sb)) continue;
+        const p1 = lerpZero(E1.a[0], E1.a[1], E1.b[0], E1.b[1], E1.sa, E1.sb);
+        const p2 = lerpZero(E2.a[0], E2.a[1], E2.b[0], E2.b[1], E2.sa, E2.sb);
+        ctx.beginPath();
+        ctx.moveTo(p1.x, p1.y);
+        ctx.lineTo(p2.x, p2.y);
+        ctx.stroke();
+      }
     }
   }
 
-  updateObjectList();
-  redraw();
-}
-
-function drawSelectionBox() {
-  if (!isSelectingBox) return;
-  const box = normalizeSelectionBox();
-  ctx.save();
-  ctx.fillStyle = 'rgba(255,255,0,0.08)';
-  ctx.strokeStyle = '#ffff00';
-  ctx.lineWidth = 1.5;
-  ctx.setLineDash([6, 4]);
-  ctx.fillRect(box.left, box.top, box.right - box.left, box.bottom - box.top);
-  ctx.strokeRect(box.left, box.top, box.right - box.left, box.bottom - box.top);
+  ctx.setLineDash([]);
   ctx.restore();
 }
 
-function getHitObject(wx, wy) {
-  // ИЗМЕНЕНО: приоритет точка → провинция → линия
-  const nearest = findNearestPoint(wx, wy);
-  if (nearest) return { type: 'point', id: nearest.id };
+// ============================================================
+//  ГОРОДА
+// ============================================================
+function drawCities() {
+  ctx.save();
 
-  const province = getProvinceAt(wx, wy);
-  if (province) return { type: 'province', id: province.id };
+  for (const p of worldData.points) {
+    if (!p.isCity) continue;
 
-  const road = getRoadAt(wx, wy);
-  if (road) return { type: 'road', id: road.id };
+    const s = worldToScreen(p.x, p.y);
+    const owner = p._owner || 0;
 
-  return null;
+    let color;
+    if (owner === 1) color = "#4a9eff";
+    else if (owner === 2) color = "#ff5050";
+    else color = "#7788aa";
+
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, 5, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+  }
+
+  ctx.restore();
 }
 
-canvas.addEventListener("mousedown", (e) => {
-  if (e.button === 2) {
-    e.preventDefault();
-    isPanning = true;
-    panStartX = e.clientX; panStartY = e.clientY;
-    panStartOffsetX = offsetX; panStartOffsetY = offsetY;
-    canvas.style.cursor = "grabbing";
-    return;
-  }
+// ============================================================
+//  ЮНИТЫ
+// ============================================================
+function drawUnits() {
+  ctx.save();
 
-  const rect = canvas.getBoundingClientRect();
-  const sx = e.clientX - rect.left;
-  const sy = e.clientY - rect.top;
-  const { x: wx, y: wy } = screenToWorld(sx, sy);
+  for (const u of units) {
+    const s = worldToScreen(u.x, u.y);
 
-  if (mode === "province_paint") {
-    startProvincePaint(wx, wy);
-    return;
-  }
+    if (u.targetX !== undefined && u.targetY !== undefined) {
+      const dx = u.targetX - u.x;
+      const dy = u.targetY - u.y;
+      const dist = Math.hypot(dx, dy);
 
-  if (mode === "trace") {
-    if (!isTracing) {
-      startTrace(wx, wy);
-    } else {
-      // ИЗМЕНЕНО: при клике обводки используем существующую вершину, если она в SNAP_DISTANCE.
-      const nearest = findNearestPoint(wx, wy);
-      const pt = nearest || addPoint(wx, wy);
-      if (!tracePoints.includes(pt.id)) tracePoints.push(pt.id);
-      snapPreviewPointId = nearest ? nearest.id : null;
-      updateStatus();
-      redraw();
-    }
-    return;
-  }
+      if (dist > 0.01) {
+        const ts = worldToScreen(u.targetX, u.targetY);
 
-  if (mode === "connect") {
-    startConnect(wx, wy);
-    return;
-  }
+        ctx.beginPath();
+        ctx.moveTo(s.x, s.y);
+        ctx.lineTo(ts.x, ts.y);
+        ctx.strokeStyle = u.owner === 1
+          ? "rgba(100, 180, 255, 0.7)"
+          : "rgba(255, 100, 100, 0.7)";
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([4, 4]);
+        ctx.stroke();
+        ctx.setLineDash([]);
 
-  if (mode === "road" || mode === "rail" || mode === "river") {
-    // ИЗМЕНЕНО: используем snap к существующей точке
-    const nearest = findNearestPoint(wx, wy);
-    if (nearest) {
-      if (currentPolyline.length === 0) pushUndo();
-      if (!currentPolyline.includes(nearest.id)) currentPolyline.push(nearest.id);
-    } else {
-      if (currentPolyline.length === 0) pushUndo();
-      const pt = addPoint(wx, wy);
-      currentPolyline.push(pt.id);
-    }
-    updateStatus();
-    redraw();
-    return;
-  }
+        const arrowSize = Math.min(8, dist * canvas.width * 0.4);
+        const angle = Math.atan2(dy, dx);
 
-  if (mode === "land") {
-    const nearest = findNearestPoint(wx, wy);
-    if (nearest) {
-      if (currentPolygon.length === 0) pushUndo();
-      if (!currentPolygon.includes(nearest.id)) currentPolygon.push(nearest.id);
-    } else {
-      if (currentPolygon.length === 0) pushUndo();
-      const pt = addPoint(wx, wy);
-      currentPolygon.push(pt.id);
-    }
-    updateStatus();
-    redraw();
-    return;
-  }
-
-  // ИЗМЕНЕНО: обычный режим select
-  const hit = getHitObject(wx, wy);
-  const additive = e.ctrlKey || e.shiftKey;
-
-  if (hit) {
-    if (hit.type === 'point') {
-      // ИЗМЕНЕНО: если точка принадлежит уже выбранному объекту, не заменяем группу
-      const selectedPointIds = getSelectedPointIds();
-      const keepSelection = !additive && selectedObjects.length > 0 && selectedPointIds.has(hit.id);
-      if (!keepSelection) selectObject(hit.type, hit.id, additive);
-      draggedPointId = hit.id;
-
-      // ИЗМЕНЕНО: сохраняем исходные позиции всех точек, затронутых выделением
-      const pointIds = getSelectedPointIds();
-      groupDragOriginalPositions = new Map();
-      for (const id of pointIds) {
-        const p = points.find(pt => pt.id === id);
-        if (p) groupDragOriginalPositions.set(id, { x: p.x, y: p.y });
+        ctx.beginPath();
+        ctx.moveTo(ts.x, ts.y);
+        ctx.lineTo(
+          ts.x - arrowSize * Math.cos(angle - Math.PI / 6),
+          ts.y - arrowSize * Math.sin(angle - Math.PI / 6)
+        );
+        ctx.lineTo(
+          ts.x - arrowSize * Math.cos(angle + Math.PI / 6),
+          ts.y - arrowSize * Math.sin(angle + Math.PI / 6)
+        );
+        ctx.closePath();
+        ctx.fillStyle = u.owner === 1
+          ? "rgba(100, 180, 255, 0.7)"
+          : "rgba(255, 100, 100, 0.7)";
+        ctx.fill();
       }
-      groupDragStartX = wx;
-      groupDragStartY = wy;
-      dragUndoPushed = false;
-    } else {
-      selectObject(hit.type, hit.id, additive);
-      draggedPointId = null;
-      groupDragOriginalPositions.clear();
     }
-    updateObjectList();
-    redraw();
-  } else {
-    // ИЗМЕНЕНО: пустое место → начинаем рамку выделения
-    if (!additive) selectedObjects = [];
-    isSelectingBox = true;
-    selectionBoxStartX = sx;
-    selectionBoxStartY = sy;
-    selectionBoxCurrentX = sx;
-    selectionBoxCurrentY = sy;
-    canvas.style.cursor = "crosshair";
-    updateObjectList();
-    redraw();
-  }
-});
 
-canvas.addEventListener("mousemove", (e) => {
-  lastMouseX = e.clientX;
-  lastMouseY = e.clientY;
+    const color = u.owner === 1 ? "#4a9eff" : "#ff5050";
+    const outline = u.selected ? "#ffffff" : "#000000";
 
-  if (isPanning) {
-    offsetX = panStartOffsetX + (e.clientX - panStartX);
-    offsetY = panStartOffsetY + (e.clientY - panStartY);
-    redraw();
-    return;
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, UNIT_RADIUS, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = u.selected ? 3 : 1.5;
+    ctx.stroke();
+
+    if (u.selected) {
+      const pulse = 1 + Math.sin(performance.now() / 200) * 0.2;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, UNIT_RADIUS * pulse + 3, 0, Math.PI * 2);
+      ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+      ctx.lineWidth = 1;
+      ctx.stroke();
+    }
+
+    ctx.beginPath();
+    ctx.arc(s.x, s.y, UNIT_INFLUENCE * canvas.width, 0, Math.PI * 2);
+    ctx.strokeStyle = u.owner === 1
+      ? "rgba(100, 180, 255, 0.12)"
+      : "rgba(255, 100, 100, 0.12)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 4]);
+    ctx.stroke();
+    ctx.setLineDash([]);
   }
+
+  ctx.restore();
+}
+
+// ============================================================
+//  ЗАГЛУШКА
+// ============================================================
+function drawHint() {
+  ctx.save();
+  ctx.fillStyle = "#2a3347";
+  ctx.font = "18px Segoe UI";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("Загрузите world.json или сгенерируйте карту", canvas.width / 2, canvas.height / 2);
+  ctx.restore();
+}
+
+// ============================================================
+//  ОБРАБОТЧИК КЛИКА
+// ============================================================
+const CLICK_RADIUS = 12;
+
+canvas.addEventListener("click", (e) => {
+  if (!worldData.points.length) return;
 
   const rect = canvas.getBoundingClientRect();
   const sx = e.clientX - rect.left;
   const sy = e.clientY - rect.top;
-  const { x: wx, y: wy } = screenToWorld(sx, sy);
 
-  if (isSelectingBox) {
-    // ИЗМЕНЕНО: обновляем рамку выделения в реальном времени
-    selectionBoxCurrentX = sx;
-    selectionBoxCurrentY = sy;
-    redraw();
-    drawSelectionBox();
-    return;
-  }
+  // 1. Клик по юниту
+  let clickedUnit = null;
+  let minDist = UNIT_RADIUS + 5;
 
-  if (mode === "province_paint" && isPaintingProvince) {
-    continueProvincePaint(wx, wy);
-    return;
-  }
-
-  if (mode === "trace" && isTracing) {
-    continueTrace(wx, wy);
-    return;
-  }
-
-  if (draggedPointId !== null) {
-    const pointIds = getSelectedPointIds();
-    if (pointIds.size === 0) pointIds.add(draggedPointId);
-
-    // ИЗМЕНЕНО: первый реальный drag создаёт один Undo-снимок
-    if (!dragUndoPushed) {
-      pushUndo();
-      dragUndoPushed = true;
+  for (const u of units) {
+    const us = worldToScreen(u.x, u.y);
+    const d = Math.hypot(us.x - sx, us.y - sy);
+    if (d < minDist) {
+      minDist = d;
+      clickedUnit = u;
     }
+  }
 
-    const dx = wx - groupDragStartX;
-    const dy = wy - groupDragStartY;
+  if (clickedUnit) {
+    for (const u of units) u.selected = false;
+    clickedUnit.selected = true;
+    selectedUnit = clickedUnit;
+    statusEl.textContent = `🎯 Выделен юнит #${clickedUnit.id} (${clickedUnit.owner === 1 ? "игрок" : "ИИ"})`;
+    redraw();
+    return;
+  }
 
-    for (const id of pointIds) {
-      const p = points.find(pt => pt.id === id);
-      const original = groupDragOriginalPositions.get(id);
-      if (!p || !original) continue;
-      p.x = Math.max(0, Math.min(1, original.x + dx));
-      p.y = Math.max(0, Math.min(1, original.y + dy));
+  // 2. Цель для выделенного юнита
+  if (selectedUnit) {
+    const wx = sx / canvas.width;
+    const wy = sy / canvas.height;
+    selectedUnit.targetX = wx;
+    selectedUnit.targetY = wy;
+    statusEl.textContent = `➡️ Юнит #${selectedUnit.id} движется к цели`;
+    redraw();
+    return;
+  }
+
+  // 3. Клик по городу
+  let nearest = null;
+  let nearestDist = CLICK_RADIUS;
+
+  for (const p of worldData.points) {
+    if (!p.isCity) continue;
+    const s = worldToScreen(p.x, p.y);
+    const d = Math.hypot(s.x - sx, s.y - sy);
+    if (d < nearestDist) {
+      nearestDist = d;
+      nearest = p;
     }
-    redraw();
-  } else {
-    redraw();
   }
+
+  if (nearest) {
+    const current = nearest._owner || 0;
+    let next;
+    if (current === 0) next = 1;
+    else if (current === 1) next = 2;
+    else next = 0;
+
+    nearest._owner = next;
+
+    const labels = { 0: "нейтрал", 1: "игрок", 2: "ИИ" };
+    statusEl.textContent = `🎯 Город #${nearest.id} → ${labels[next]}`;
+    invalidateField();
+    return;
+  }
+
+  // 4. Создание юнита
+  const wx = sx / canvas.width;
+  const wy = sy / canvas.height;
+
+  const newUnit = {
+    id: units.length + 1,
+    x: wx,
+    y: wy,
+    owner: unitCreateOwner,
+    targetX: wx,
+    targetY: wy,
+    selected: false,
+    speed: UNIT_SPEED,
+  };
+
+  units.push(newUnit);
+  statusEl.textContent = `➕ Создан юнит #${newUnit.id} (${unitCreateOwner === 1 ? "игрок" : "ИИ"}) в (${wx.toFixed(2)}, ${wy.toFixed(2)})`;
+  invalidateField();
 });
-
-window.addEventListener("mouseup", (e) => {
-  if (isPanning) {
-    isPanning = false;
-    canvas.style.cursor = "crosshair";
-  }
-
-  if (isSelectingBox) {
-    isSelectingBox = false;
-    selectByBox();
-    canvas.style.cursor = "crosshair";
-    return;
-  }
-
-  if (mode === "province_paint" && isPaintingProvince) {
-    finishProvincePaint();
-    return;
-  }
-
-  if (mode === "road" || mode === "rail" || mode === "river") {
-    // ИЗМЕНЕНО: завершение теперь делается Enter; mouseup ничего не создаёт
-    draggedPointId = null;
-    return;
-  }
-
-  if (mode === "land") {
-    // ИЗМЕНЕНО: завершение делается Enter / двойным кликом
-    draggedPointId = null;
-    return;
-  }
-
-  draggedPointId = null;
-  groupDragOriginalPositions.clear();
-  dragUndoPushed = false;
-  updateObjectList();
-});
-
-
-// ИЗМЕНЕНО: потеря фокуса окна не должна оставлять drag/панорамирование активными
-window.addEventListener("blur", () => {
-  isPanning = false;
-  isSelectingBox = false;
-  draggedPointId = null;
-  groupDragOriginalPositions.clear();
-  dragUndoPushed = false;
-  snapPreviewPointId = null;
-  canvas.style.cursor = "crosshair";
-});
-
-canvas.addEventListener("contextmenu", (e) => e.preventDefault());
 
 // ============================================================
-//  КЛАВИАТУРА
+//  ГОРЯЧИЕ КЛАВИШИ
 // ============================================================
-window.addEventListener("keydown", (e) => {
-  // ИЗМЕНЕНО: не перехватываем хоткеи в INPUT/TEXTAREA
-  if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'INPUT') return;
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target && e.target.tagName) || "";
+  if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-  if (e.key >= '1' && e.key <= '8') {
-    const modes = ['select', 'road', 'rail', 'river', 'land', 'trace', 'province_paint', 'connect'];
-    const idx = parseInt(e.key) - 1;
-    if (modes[idx]) setMode(modes[idx]);
+  if (e.code === "Space") {
     e.preventDefault();
+    paused = !paused;
+    statusEl.textContent = paused ? "⏸ Анимация на паузе" : "▶️ Анимация продолжена";
+    return;
+  }
+
+  if (e.key === "Delete" || e.code === "Backspace") {
+    if (selectedUnit) {
+      e.preventDefault();
+      const id = selectedUnit.id;
+      units = units.filter(u => u !== selectedUnit);
+      selectedUnit = null;
+      statusEl.textContent = `🗑 Юнит #${id} удалён`;
+      invalidateField();
+    }
     return;
   }
 
   if (e.key === "Escape") {
-    // ИЗМЕНЕНО: Esc сначала отменяет рисование, иначе сбрасывает выделение
-    if (mode === "trace" && isTracing) { finishTrace(); e.preventDefault(); return; }
-    if (mode === "province_paint" && isPaintingProvince) { finishProvincePaint(); e.preventDefault(); return; }
-    if ((mode === "road" || mode === "rail" || mode === "river") && currentPolyline.length) {
-      currentPolyline = [];
-      snapPreviewPointId = null;
-      updateStatus();
-      redraw();
-      e.preventDefault();
-      return;
-    }
-    if (mode === "land" && currentPolygon.length) {
-      currentPolygon = [];
-      snapPreviewPointId = null;
-      updateStatus();
-      redraw();
-      e.preventDefault();
-      return;
-    }
-    if (mode === "connect" && connectPoints.length > 0) { connectPoints = []; updateStatus(); redraw(); e.preventDefault(); return; }
-    clearSelection();
-    e.preventDefault();
-    return;
-  }
-
-  if (e.key === "Enter" && (mode === "road" || mode === "rail" || mode === "river") && currentPolyline.length >= 2) {
-    // ИЗМЕНЕНО: завершение линии по Enter
-    pushUndo();
-    const road = addRoad(currentPolyline, mode);
-    selectedObjects = [{ type: 'road', id: road.id }];
-    currentPolyline = [];
-    updateStatus();
-    updateObjectList();
+    for (const u of units) u.selected = false;
+    selectedUnit = null;
+    statusEl.textContent = "↩️ Выделение снято";
     redraw();
-    e.preventDefault();
     return;
   }
 
-  if (e.key === "Enter" && mode === "land" && currentPolygon.length >= 3) {
-    pushUndo();
-    const prov = addProvince(currentPolygon);
-    currentPolygon = [];
-    selectedObjects = [{ type: 'province', id: prov.id }];
-    updateStatus();
-    updateObjectList();
-    redraw();
-    e.preventDefault();
+  if (e.key === "g" || e.key === "G" || e.key === "п" || e.key === "П") {
+    document.getElementById("btnGenerate").click();
     return;
   }
-
-  if (e.key === "Delete") {
-    deleteSelected();
-    e.preventDefault();
-    return;
-  }
-
-  if (e.ctrlKey && e.key.toLowerCase() === "z") { e.preventDefault(); restoreUndo(); }
 });
 
 // ============================================================
-//  ЗУМ
+//  ГЕНЕРАТОР КАРТЫ
 // ============================================================
-canvas.addEventListener("wheel", (e) => {
-  e.preventDefault();
-  const rect = canvas.getBoundingClientRect();
-  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
-  const wx = (mx - offsetX) / (zoom * canvas.width);
-  const wy = (my - offsetY) / (zoom * canvas.height);
-  const factor = e.deltaY > 0 ? 0.9 : 1.1;
-  const newZoom = Math.min(5, Math.max(0.3, zoom * factor));
-  offsetX = mx - wx * newZoom * canvas.width;
-  offsetY = my - wy * newZoom * canvas.height;
-  zoom = newZoom;
-  document.getElementById("zoomLevel").textContent = Math.round(zoom*100)+"%";
-  redraw();
-}, { passive: false });
-
-// ============================================================
-//  КНОПКИ
-// ============================================================
-document.querySelectorAll("#modeButtons button").forEach(btn => {
-  btn.addEventListener("click", () => setMode(btn.dataset.mode));
-});
-
-document.getElementById("makeCityBtn").addEventListener("click", () => setCityType("city"));
-document.getElementById("makePortBtn").addEventListener("click", () => setCityType("port"));
-document.getElementById("makeAirfieldBtn").addEventListener("click", () => setCityType("airfield"));
-document.getElementById("makeFarmBtn").addEventListener("click", () => setCityType("farm"));
-document.getElementById("makeMineBtn").addEventListener("click", () => setCityType("mine"));
-document.getElementById("makeFactoryBtn").addEventListener("click", () => setCityType("factory"));
-document.getElementById("makeTradeBtn").addEventListener("click", () => setCityType("trade"));
-
-document.getElementById("deletePointBtn").addEventListener("click", deleteSelected);
-document.getElementById("deleteLineBtn").addEventListener("click", deleteSelected);
-
-document.getElementById("clearBtn").addEventListener("click", clearMap);
-document.getElementById("undoBtn").addEventListener("click", restoreUndo);
-
-document.getElementById("centerBtn").addEventListener("click", () => {
-  offsetX = 0;
-  offsetY = 0;
-  zoom = 1;
-  document.getElementById("zoomLevel").textContent = "100%";
-  redraw();
-});
-
-document.getElementById("findOrphansBtn").addEventListener("click", findOrphanPoints);
-// ИЗМЕНЕНО: ручное объединение близких вершин провинций
-document.getElementById("mergeVerticesBtn").addEventListener("click", mergeNearbyVertices);
-document.getElementById("deleteOrphansBtn").addEventListener("click", deleteOrphanPoints);
-
-document.getElementById("zoomInBtn").addEventListener("click", () => {
-  const cx = canvas.width/2, cy = canvas.height/2;
-  const wx = (cx - offsetX) / (zoom * canvas.width);
-  const wy = (cy - offsetY) / (zoom * canvas.height);
-  const newZoom = Math.min(5, zoom * 1.2);
-  offsetX = cx - wx * newZoom * canvas.width;
-  offsetY = cy - wy * newZoom * canvas.height;
-  zoom = newZoom;
-  document.getElementById("zoomLevel").textContent = Math.round(zoom*100)+"%";
-  redraw();
-});
-
-document.getElementById("zoomOutBtn").addEventListener("click", () => {
-  const cx = canvas.width/2, cy = canvas.height/2;
-  const wx = (cx - offsetX) / (zoom * canvas.width);
-  const wy = (cy - offsetY) / (zoom * canvas.height);
-  const newZoom = Math.max(0.3, zoom / 1.2);
-  offsetX = cx - wx * newZoom * canvas.width;
-  offsetY = cy - wy * newZoom * canvas.height;
-  zoom = newZoom;
-  document.getElementById("zoomLevel").textContent = Math.round(zoom*100)+"%";
-  redraw();
-});
-
-document.getElementById("zoomResetBtn").addEventListener("click", () => {
-  zoom = 1; offsetX = 0; offsetY = 0;
-  document.getElementById("zoomLevel").textContent = "100%";
-  redraw();
-});
-
-// ============================================================
-//  PNG
-// ============================================================
-const fileInput = document.getElementById("fileInput");
-document.getElementById("loadImageBtn").addEventListener("click", () => fileInput.click());
-fileInput.addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    const img = new Image();
-    img.onload = () => {
-      bgImage = img;
-      bgImageLoaded = true;
-      dropHint.style.display = "none";
-      redraw();
-    };
-    img.src = ev.target.result;
+function makeRandom(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0; a = a + 0x6D2B79F5 | 0;
+    let t = a;
+    t = Math.imul(t ^ t >>> 15, t | 1);
+    t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
   };
-  reader.readAsDataURL(file);
-});
+}
 
-container.addEventListener("dragover", (e) => e.preventDefault());
-container.addEventListener("drop", (e) => {
-  e.preventDefault();
-  const file = e.dataTransfer.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    const img = new Image();
-    img.onload = () => {
-      bgImage = img;
-      bgImageLoaded = true;
-      dropHint.style.display = "none";
-      redraw();
-    };
-    img.src = ev.target.result;
-  };
-  reader.readAsDataURL(file);
-});
+function generateWorld(opts) {
+  const {
+    provinceCount = 60,
+    cityCount = 14,
+    islandness = 0.4,
+    seed = 0,
+  } = opts;
 
-// ============================================================
-//  ЭКСПОРТ PNG
-// ============================================================
-document.getElementById("exportPngBtn").addEventListener("click", () => {
-  const expCanvas = document.createElement("canvas");
-  expCanvas.width = canvas.width;
-  expCanvas.height = canvas.height;
-  const expCtx = expCanvas.getContext("2d");
+  const rand = makeRandom(seed || (Math.random() * 1e9) | 0);
 
-  if (bgImageLoaded && bgImage) {
-    expCtx.drawImage(bgImage, 0, 0, expCanvas.width, expCanvas.height);
-  } else {
-    expCtx.fillStyle = "#0a0d14";
-    expCtx.fillRect(0, 0, expCanvas.width, expCanvas.height);
-  }
+  const centers = [];
+  const minDist = Math.sqrt(1 / (provinceCount * 2.5));
+  const maxTries = provinceCount * 40;
 
-  // ИЗМЕНЕНО: экспортируем провинции с полупрозрачной заливкой
-  for (const prov of provinces) {
-    if (!prov.vertexIds || prov.vertexIds.length < 3) continue;
-    const pts = prov.vertexIds.map(id => points.find(p => p.id === id)).filter(p => p);
-    if (pts.length < 3) continue;
+  let tries = 0;
+  while (centers.length < provinceCount && tries < maxTries) {
+    tries++;
 
-    expCtx.save();
-    expCtx.fillStyle = "rgba(255,200,100,0.20)";
-    expCtx.strokeStyle = "#ffaa44";
-    expCtx.lineWidth = 2;
-    expCtx.beginPath();
-    for (let i = 0; i < pts.length; i++) {
-      const sx = pts[i].x * expCanvas.width;
-      const sy = pts[i].y * expCanvas.height;
-      if (i === 0) expCtx.moveTo(sx, sy);
-      else expCtx.lineTo(sx, sy);
+    const x = rand();
+    const y = rand();
+
+    if (islandness > 0) {
+      const dx = x - 0.5;
+      const dy = y - 0.5;
+      const r = Math.sqrt(dx * dx + dy * dy) * 2;
+      const keep = 1 - Math.pow(Math.max(0, r - 0.2), 2) * islandness * 2;
+      if (rand() > Math.max(0, keep)) continue;
     }
-    expCtx.closePath();
-    expCtx.fill();
-    expCtx.stroke();
-    expCtx.restore();
-  }
 
-  // ИЗМЕНЕНО: сохраняем типовые цвета дорог/ЖД/рек
-  const roadColors = { road: "#ffffff", rail: "#ffcc00", river: "#3399ff" };
-  for (const road of roads) {
-    if (road.pointIds.length < 2) continue;
-    const pts = road.pointIds.map(id => points.find(p => p.id === id)).filter(p => p);
-    if (pts.length < 2) continue;
-
-    expCtx.save();
-    expCtx.strokeStyle = roadColors[road.type] || "#ffffff";
-    expCtx.lineWidth = road.type === "river" ? 3 : 2;
-    if (road.type === "river") expCtx.setLineDash([6, 4]);
-    expCtx.beginPath();
-    for (let i = 0; i < pts.length; i++) {
-      const sx = pts[i].x * expCanvas.width;
-      const sy = pts[i].y * expCanvas.height;
-      if (i === 0) expCtx.moveTo(sx, sy);
-      else expCtx.lineTo(sx, sy);
+    let ok = true;
+    for (const c of centers) {
+      const dx = c.x - x;
+      const dy = c.y - y;
+      if (dx * dx + dy * dy < minDist * minDist) { ok = false; break; }
     }
-    expCtx.stroke();
-    expCtx.restore();
+    if (!ok) continue;
+
+    centers.push({ x, y });
   }
 
-  // ИЗМЕНЕНО: цвета городов соответствуют redraw()
-  const cityColors = {
-    city: "#3399ff", port: "#33cc33", airfield: "#ff66cc",
-    farm: "#8B8000", mine: "#A0522D", factory: "#6A0DAD", trade: "#DAA520"
-  };
+  const RES = 160;
+  const owner = new Int16Array(RES * RES).fill(-1);
+  const isWaterGrid = new Uint8Array(RES * RES);
 
-  for (const p of points) {
-    const sx = p.x * expCanvas.width;
-    const sy = p.y * expCanvas.height;
-    expCtx.beginPath();
-    expCtx.fillStyle = p.isCity ? (cityColors[p.cityType] || "#3399ff") : "#cccccc";
-    expCtx.arc(sx, sy, p.isCity ? 6 : 3, 0, Math.PI * 2);
-    expCtx.fill();
-    if (p.isCity) {
-      expCtx.strokeStyle = "#000";
-      expCtx.lineWidth = 1.5;
-      expCtx.stroke();
+  for (let gy = 0; gy < RES; gy++) {
+    for (let gx = 0; gx < RES; gx++) {
+      const x = (gx + 0.5) / RES;
+      const y = (gy + 0.5) / RES;
+
+      const dx = x - 0.5;
+      const dy = y - 0.5;
+      const r = Math.sqrt(dx * dx + dy * dy) * 2;
+
+      const landRadius = 1.0 - islandness * 0.55;
+      // ИЗМЕНЕНО: стабильный хеш вместо sin-хеша
+      const noise = (hash2u(Math.floor(x * 1220), Math.floor(y * 1220)) - 0.5) * islandness * 0.6;
+
+      const isLand = r + noise < landRadius;
+      isWaterGrid[gy * RES + gx] = isLand ? 0 : 1;
+
+      if (!isLand) continue;
+
+      let best = -1;
+      let bestD = Infinity;
+      for (let i = 0; i < centers.length; i++) {
+        const c = centers[i];
+        const ddx = c.x - x;
+        const ddy = c.y - y;
+        const d = ddx * ddx + ddy * ddy;
+        if (d < bestD) { bestD = d; best = i; }
+      }
+      owner[gy * RES + gx] = best;
     }
   }
 
-  const link = document.createElement("a");
-  link.href = expCanvas.toDataURL("image/png");
-  link.download = "map_export.png";
-  link.click();
-});
-// ============================================================
-//  СПИСОК ОБЪЕКТОВ
-// ============================================================
-function updateObjectList() {
-  // ИЗМЕНЕНО: список теперь показывает все типы объектов и их состояние выделения
-  const list = document.getElementById("objectList");
-  list.innerHTML = "";
-  if (selectedObjects.length) {
-    const summary = document.createElement("div");
-    summary.className = "selection-summary";
-    summary.textContent = `🟡 Выбрано объектов: ${selectedObjects.length}`;
-    list.appendChild(summary);
-  }
+  const provinces = [];
 
-  const addItem = (type, id, label) => {
-    const div = document.createElement("div");
-    div.textContent = label;
-    if (isObjectSelected(type, id)) div.classList.add("selected");
-    div.addEventListener("click", (e) => {
-      selectObject(type, id, e.ctrlKey || e.shiftKey);
-      updateObjectList();
-      redraw();
+  for (let i = 0; i < centers.length; i++) {
+    const cells = [];
+    for (let gy = 0; gy < RES; gy++) {
+      for (let gx = 0; gx < RES; gx++) {
+        if (owner[gy * RES + gx] === i) cells.push([gx, gy]);
+      }
+    }
+    if (cells.length === 0) continue;
+
+    const edges = [];
+    const cellSet = new Set(cells.map(c => c[0] + "," + c[1]));
+
+    for (const [gx, gy] of cells) {
+      if (!cellSet.has(gx + "," + (gy - 1)) || gy === 0) {
+        edges.push([[gx, gy], [gx + 1, gy]]);
+      }
+      if (!cellSet.has((gx + 1) + "," + gy) || gx === RES - 1) {
+        edges.push([[gx + 1, gy], [gx + 1, gy + 1]]);
+      }
+      if (!cellSet.has(gx + "," + (gy + 1)) || gy === RES - 1) {
+        edges.push([[gx + 1, gy + 1], [gx, gy + 1]]);
+      }
+      if (!cellSet.has((gx - 1) + "," + gy) || gx === 0) {
+        edges.push([[gx, gy + 1], [gx, gy]]);
+      }
+    }
+
+    if (edges.length < 4) continue;
+
+    const cycles = stitchEdges(edges);
+    if (cycles.length === 0) continue;
+
+    let bestCycle = cycles[0];
+    for (const c of cycles) if (c.length > bestCycle.length) bestCycle = c;
+
+    const step = Math.max(1, Math.floor(bestCycle.length / 40));
+    const simplified = [];
+    for (let k = 0; k < bestCycle.length; k += step) {
+      simplified.push(bestCycle[k]);
+    }
+    if (simplified.length < 3) continue;
+
+    let sx = 0, sy = 0;
+    for (const [gx, gy] of cells) { sx += gx; sy += gy; }
+    sx = (sx / cells.length + 0.5) / RES;
+    sy = (sy / cells.length + 0.5) / RES;
+
+    provinces.push({
+      id: i + 1,
+      type: "land",
+      center: { x: sx, y: sy },
+      _pixels: cells,
+      _contour: simplified.map(([gx, gy]) => ({
+        x: gx / RES,
+        y: gy / RES,
+      })),
     });
-    list.appendChild(div);
-  };
-
-  for (const p of points) {
-    const icon = p.isCity ? (p.cityType === 'port' ? '⚓' : p.cityType === 'airfield' ? '🛩️' : p.cityType === 'farm' ? '🌾' : p.cityType === 'mine' ? '⛏️' : p.cityType === 'factory' ? '🏭' : p.cityType === 'trade' ? '💰' : '🏙️') : '•';
-    addItem('point', p.id, `${icon} Точка #${p.id}${p.isCity ? ` (${p.cityType})` : ''}`);
   }
 
-  for (const road of roads) {
-    const labels = { road: "🛤️ Дорога", rail: "🚆 Ж/Д", river: "🌊 Река" };
-    addItem('road', road.id, `${labels[road.type] || road.type} #${road.id} (${road.pointIds.length} точек)`);
+  provinces.push({
+    id: provinces.length + 1,
+    type: "water",
+    center: { x: 0.5, y: 0.5 },
+    _contour: [
+      { x: -0.1, y: -0.1 },
+      { x: 1.1, y: -0.1 },
+      { x: 1.1, y: 1.1 },
+      { x: -0.1, y: 1.1 },
+    ],
+  });
+
+  const pointsMap = new Map();
+  const points = [];
+
+  function addPoint(x, y) {
+    const key = `${x.toFixed(5)},${y.toFixed(5)}`;
+    if (pointsMap.has(key)) return pointsMap.get(key);
+    const id = points.length + 1;
+    const p = { id, x, y };
+    pointsMap.set(key, p);
+    points.push(p);
+    return p;
   }
 
+  const finalProvinces = [];
   for (const prov of provinces) {
-    const name = prov.properties?.name || `Province #${prov.id}`;
-    const isLand = name.startsWith('Territory_');
-    const icon = isLand ? '🟩' : '📍';
-    addItem('province', prov.id, `${icon} ${name} (${prov.vertexIds.length} вершин)`);
+    const vertexIds = prov._contour.map(v => addPoint(v.x, v.y).id);
+    finalProvinces.push({
+      id: prov.id,
+      type: prov.type,
+      vertexIds,
+    });
   }
 
-  if (!points.length && !roads.length && !provinces.length) {
-    list.innerHTML = "<div style='color:#555c78;'>Нет объектов</div>";
+  const landProv = finalProvinces.filter(p => p.type === "land");
+  const shuffled = landProv.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
   }
-}
 
-// ============================================================
-//  СОХРАНЕНИЕ
-// ============================================================
-function getWorldData() {
+  const cityProvs = shuffled.slice(0, Math.min(cityCount, shuffled.length));
+
+  const cityPoints = cityProvs.map((prov, i) => {
+    const verts = prov.vertexIds.map(id => points.find(p => p.id === id));
+    let sx = 0, sy = 0;
+    for (const v of verts) { sx += v.x; sy += v.y; }
+    sx /= verts.length;
+    sy /= verts.length;
+
+    const jx = (rand() - 0.5) * 0.01;
+    const jy = (rand() - 0.5) * 0.01;
+
+    return {
+      id: 100000 + i + 1,
+      x: sx + jx,
+      y: sy + jy,
+      isCity: true,
+      name: `Город ${i + 1}`,
+      cityType: "city",
+    };
+  });
+
   return {
-    points,
-    roads,
-    provinces,
-    nextPointId,
-    nextRoadId,
-    nextProvinceId
+    points: [...points, ...cityPoints],
+    roads: [],
+    provinces: finalProvinces,
+    _meta: {
+      seed: seed || 0,
+      generated: true,
+    },
   };
 }
 
-document.getElementById("saveWorldBtn").addEventListener("click", () => {
-  const data = getWorldData();
-  const json = JSON.stringify(data, null, 2);
-  const blob = new Blob([json], { type: 'application/json' });
+function stitchEdges(edges) {
+  const adj = new Map();
+
+  function key(p) { return p[0] + "," + p[1]; }
+
+  for (const [a, b] of edges) {
+    const ka = key(a);
+    const kb = key(b);
+    if (!adj.has(ka)) adj.set(ka, []);
+    if (!adj.has(kb)) adj.set(kb, []);
+    adj.get(ka).push({ to: kb, pos: b });
+    adj.get(kb).push({ to: ka, pos: a });
+  }
+
+  const used = new Set();
+  const cycles = [];
+
+  for (const [a, b] of edges) {
+    const ka = key(a);
+    const kb = key(b);
+    const eKey = ka < kb ? ka + "|" + kb : kb + "|" + ka;
+    if (used.has(eKey)) continue;
+
+    const cycle = [a, b];
+    used.add(eKey);
+
+    let current = b;
+    let prev = a;
+    let guard = 0;
+
+    while (guard++ < 10000) {
+      const neighbors = adj.get(key(current)) || [];
+      let next = null;
+
+      for (const n of neighbors) {
+        const nk = n.to;
+        const nPos = n.pos;
+        const eK = key(current) < nk ? key(current) + "|" + nk : nk + "|" + key(current);
+        if (used.has(eK)) continue;
+        if (nPos[0] === prev[0] && nPos[1] === prev[1]) continue;
+        next = nPos;
+        used.add(eK);
+        break;
+      }
+
+      if (!next) break;
+      if (next[0] === cycle[0][0] && next[1] === cycle[0][1]) break;
+
+      cycle.push(next);
+      prev = current;
+      current = next;
+    }
+
+    if (cycle.length >= 3) cycles.push(cycle);
+  }
+
+  return cycles;
+}
+
+// ============================================================
+//  UI ГЕНЕРАТОРА
+// ============================================================
+const genProvinces = document.getElementById("genProvinces");
+const genCities = document.getElementById("genCities");
+const genIslands = document.getElementById("genIslands");
+const genSeed = document.getElementById("genSeed");
+
+const genProvincesVal = document.getElementById("genProvincesVal");
+const genCitiesVal = document.getElementById("genCitiesVal");
+const genIslandsVal = document.getElementById("genIslandsVal");
+const genSeedVal = document.getElementById("genSeedVal");
+
+genProvinces.addEventListener("input", () => {
+  genProvincesVal.textContent = genProvinces.value;
+});
+genCities.addEventListener("input", () => {
+  genCitiesVal.textContent = genCities.value;
+});
+genIslands.addEventListener("input", () => {
+  genIslandsVal.textContent = parseFloat(genIslands.value).toFixed(2);
+});
+genSeed.addEventListener("input", () => {
+  genSeedVal.textContent = genSeed.value;
+});
+
+document.getElementById("btnGenerate").addEventListener("click", () => {
+  const provinces = parseInt(genProvinces.value);
+  const cities = parseInt(genCities.value);
+  const islands = parseFloat(genIslands.value);
+  const seed = parseInt(genSeed.value) || (Math.random() * 1e9) | 0;
+
+  console.log(`🎲 Генерация: провинций=${provinces}, городов=${cities}, островность=${islands}, seed=${seed}`);
+
+  statusEl.textContent = "⏳ Генерация...";
+
+  setTimeout(() => {
+    try {
+      const generated = generateWorld({
+        provinceCount: provinces,
+        cityCount: cities,
+        islandness: islands,
+        seed,
+      });
+
+      worldData = {
+        points: generated.points,
+        roads: generated.roads,
+        provinces: generated.provinces,
+      };
+
+      units = [];
+      selectedUnit = null;
+
+      prepareProvinces();
+      buildLandMask();
+
+      autoSplitFactions();
+
+      const cityCount = worldData.points.filter(p => p.isCity).length;
+      statusEl.textContent =
+        `✅ Сгенерировано: ${worldData.provinces.length} провинций, ${cityCount} городов (seed ${seed})`;
+
+      rebuildFieldBuffers();
+      computeTargetField();
+      snapCurrentToTarget();
+      redraw();
+
+      console.log(`✅ Готово. Провинций: ${worldData.provinces.length}, городов: ${cityCount}`);
+    } catch (err) {
+      console.error("❌ Ошибка генерации:", err);
+      statusEl.textContent = `❌ Ошибка генерации: ${err.message}`;
+    }
+  }, 50);
+});
+
+document.getElementById("btnDownloadJson").addEventListener("click", () => {
+  if (!worldData.provinces.length) {
+    statusEl.textContent = "⚠️ Нечего скачивать";
+    return;
+  }
+
+  const clean = {
+    points: worldData.points.map(p => {
+      const out = { id: p.id, x: p.x, y: p.y };
+      if (p.isCity) {
+        out.isCity = true;
+        out.name = p.name || `Город #${p.id}`;
+        out.cityType = p.cityType || "city";
+      }
+      return out;
+    }),
+    roads: worldData.roads || [],
+    provinces: worldData.provinces.map(prov => ({
+      id: prov.id,
+      type: prov.type,
+      vertexIds: prov.vertexIds || [],
+    })),
+    // ИЗМЕНЕНО: сохраняем юнитов
+    units: units.map(u => ({
+      x: +u.x.toFixed(5),
+      y: +u.y.toFixed(5),
+      owner: u.owner,
+    })),
+  };
+
+  const json = JSON.stringify(clean, null, 2);
+  const blob = new Blob([json], { type: "application/json" });
   const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
-  a.download = 'world.json';
+  a.download = `world_generated_${Date.now()}.json`;
   a.click();
   URL.revokeObjectURL(url);
-  document.getElementById("jsonArea").value = json;
+
+  statusEl.textContent = `💾 world.json сохранён (юнитов: ${units.length})`;
 });
 
-document.getElementById("loadJsonBtn").addEventListener("click", () => document.getElementById("jsonFileInput").click());
-document.getElementById("jsonFileInput").addEventListener("change", (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = (ev) => {
-    try {
-      const data = JSON.parse(ev.target.result);
-      points = data.points || [];
-      roads = data.roads || [];
-      provinces = data.provinces || [];
-      nextPointId = data.nextPointId || 1;
-      nextRoadId = data.nextRoadId || 1;
-      nextProvinceId = data.nextProvinceId || 1;
-      selectedObjects = [];
-      currentPolyline = []; currentPolygon = []; tracePoints = []; provincePaintPoints = []; connectPoints = [];
-      orphanPoints = [];
-      isPaintingProvince = false;
-      isTracing = false;
-      draggedPointId = null;
-      isSelectingBox = false;
-      groupDragOriginalPositions.clear();
-      dragUndoPushed = false;
-      snapPreviewPointId = null;
-      redraw();
-      updateObjectList();
-      updateStatus();
-      document.getElementById("jsonArea").value = JSON.stringify(data, null, 2);
-      alert('✅ Карта загружена!');
-    } catch (err) { alert('❌ Ошибка: ' + err.message); }
-  };
-  reader.readAsText(file);
-  e.target.value = '';
+document.getElementById("btnDownloadPng").addEventListener("click", () => {
+  canvas.toBlob((blob) => {
+    if (!blob) return;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `territory_${Date.now()}.png`;
+    a.click();
+    URL.revokeObjectURL(url);
+    statusEl.textContent = "📷 PNG сохранён";
+  });
+});
+
+// ============================================================
+//  UI ОСНОВНЫХ КНОПОК
+// ============================================================
+document.getElementById("btnAutoSplit").addEventListener("click", autoSplitFactions);
+document.getElementById("btnRandom").addEventListener("click", randomFactions);
+document.getElementById("btnAllPlayer").addEventListener("click", allPlayer);
+document.getElementById("btnClear").addEventListener("click", clearFactions);
+
+document.getElementById("radius").addEventListener("input", (e) => {
+  R = parseFloat(e.target.value);
+  document.getElementById("radiusVal").textContent = R.toFixed(2);
+  invalidateField();
+});
+
+document.getElementById("contestedPx").addEventListener("input", (e) => {
+  contestedPx = parseInt(e.target.value);
+  document.getElementById("contestedPxVal").textContent = contestedPx;
+  redraw();
+});
+
+document.getElementById("softK").addEventListener("input", (e) => {
+  softK = parseFloat(e.target.value);
+  document.getElementById("softKVal").textContent = softK.toFixed(3);
+  invalidateField();
+});
+
+document.getElementById("noiseAmp").addEventListener("input", (e) => {
+  noiseAmp = parseFloat(e.target.value);
+  document.getElementById("noiseAmpVal").textContent = noiseAmp.toFixed(2);
+  invalidateField();
+});
+
+document.getElementById("gridRes").addEventListener("input", (e) => {
+  gridRes = parseInt(e.target.value);
+  document.getElementById("gridResVal").textContent = gridRes;
+  buildLandMask();
+  rebuildFieldBuffers();
+  computeTargetField();
+  snapCurrentToTarget();
+  redraw();
+});
+
+document.getElementById("frontWidth").addEventListener("input", (e) => {
+  frontWidth = parseFloat(e.target.value);
+  document.getElementById("frontWidthVal").textContent = frontWidth.toFixed(1);
+  redraw();
+});
+
+document.getElementById("transitionMs").addEventListener("input", (e) => {
+  transitionMs = parseInt(e.target.value);
+  document.getElementById("transitionMsVal").textContent = transitionMs;
+});
+
+// ============================================================
+//  UI СТИЛЯ ОТРИСОВКИ
+// ============================================================
+document.getElementById("renderStyle").addEventListener("change", (e) => {
+  renderStyle = e.target.value;
+  redraw();
+});
+
+document.getElementById("btnResetView").addEventListener("click", () => {
+  R = 0.12;
+  softK = 0.03;
+  noiseAmp = 0.15;
+
+  document.getElementById("radius").value = R;
+  document.getElementById("radiusVal").textContent = R.toFixed(2);
+
+  document.getElementById("softK").value = softK;
+  document.getElementById("softKVal").textContent = softK.toFixed(3);
+
+  document.getElementById("noiseAmp").value = noiseAmp;
+  document.getElementById("noiseAmpVal").textContent = noiseAmp.toFixed(2);
+
+  statusEl.textContent = "↺ Вид сброшен (R=0.12, K=0.03, шум=0.15)";
+  invalidateField();
+});
+
+// ============================================================
+//  UI ЮНИТОВ
+// ============================================================
+document.getElementById("btnUnitPlayer").addEventListener("click", () => {
+  unitCreateOwner = 1;
+  statusEl.textContent = "🟦 Режим: создание юнита игрока";
+  document.getElementById("btnUnitPlayer").classList.add("primary");
+  document.getElementById("btnUnitAi").classList.remove("primary");
+});
+
+document.getElementById("btnUnitAi").addEventListener("click", () => {
+  unitCreateOwner = 2;
+  statusEl.textContent = "🟥 Режим: создание юнита ИИ";
+  document.getElementById("btnUnitAi").classList.add("primary");
+  document.getElementById("btnUnitPlayer").classList.remove("primary");
+});
+
+document.getElementById("btnUnitClear").addEventListener("click", () => {
+  units = [];
+  selectedUnit = null;
+  statusEl.textContent = "🗑 Юниты очищены";
+  invalidateField();
 });
 
 // ============================================================
 //  СТАРТ
 // ============================================================
-setMode("select");
-redraw();
-updateObjectList();
-updateStatus();
-console.log("🗺️ Map Builder — исправленный");
-console.log("📖 Режимы: выделение, дорога, ж/д, река, суша, обводка, провинции, соединить");
-console.log("🔍 Найти сирот — точки без привязки к дорогам или провинциям");
-console.log("🟡 Провинции яркие, с тенью");
-console.log("🗑️ Delete — удаляет выбранный объект");
-console.log("🔗 Слить границы — объединяет близкие вершины разных провинций");
-console.log("⌨️ Горячие клавиши: 1-8 для режимов");
+resize();
+requestAnimationFrame(animationLoop);
+console.log("🗺️ Territory v4 (incremental + marching squares + hotkeys) запущен");
+console.log("📖 Загрузи world.json или жми «🎲 Сгенерировать»");
+console.log("🎮 Клик по карте — создать юнит, клик по юниту — выделить, клик по цели — движение");
+console.log("⌨️ Space — пауза, Delete — удалить, Esc — снять выделение, G — генерация");
 </script>
+
 </body>
 </html>
