@@ -102,15 +102,36 @@
     .btn-group { display: flex; flex-wrap: wrap; gap: 2px; }
     .btn-group button { flex: 1; min-width: 60px; }
     #zoomLevel { margin-left: 8px; color: #8892b0; font-size: 12px; }
-    #minimap {
+    #minimapWrap {
       position: absolute;
       left: 12px;
       bottom: 12px;
+      z-index: 5;
+      background: rgba(10, 13, 20, 0.92);
       border: 1px solid var(--border);
       border-radius: 8px;
-      background: rgba(10, 13, 20, 0.92);
-      z-index: 5;
+      padding: 4px;
+    }
+    #minimap {
+      display: block;
+      border-radius: 4px;
       cursor: crosshair;
+    }
+    #minimapCaption {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 8px;
+      font-size: 10px;
+      color: #8892b0;
+      padding-top: 3px;
+      user-select: none;
+    }
+    #minimapToggle {
+      margin: 0;
+      padding: 0 6px;
+      font-size: 11px;
+      line-height: 1.4;
     }
   </style>
 </head>
@@ -118,7 +139,13 @@
 
 <div id="canvasContainer">
   <canvas id="mapCanvas" width="1280" height="720"></canvas>
-  <canvas id="minimap" width="180" height="180" title="Миникарта — клик для перехода"></canvas>
+  <div id="minimapWrap">
+    <canvas id="minimap" width="180" height="180" title="Миникарта — клик для перехода"></canvas>
+    <div id="minimapCaption">
+      <span>Миникарта</span>
+      <button id="minimapToggle" title="Скрыть/показать миникарту">−</button>
+    </div>
+  </div>
   <div id="dropHint">Перетащите PNG‑карту сюда</div>
 </div>
 
@@ -2590,7 +2617,22 @@ function redraw() {
     const mouseY = (lastMouseY - rect.top);
     const { x: wx, y: wy } = screenToWorld(mouseX, mouseY);
 
-    const isHovered = pointInPolygon({ x: wx, y: wy }, vertices);
+    // ИЗМЕНЕНО: фоновое море (занимает ~всю карту) не подсвечиваем
+    // при наведении — иначе весь экран заливается синим за курсором.
+    let isBackgroundSea = false;
+    if (prov.type === 'water') {
+      let mnx = 1, mny = 1, mxx = 0, mxy = 0;
+      for (const v of vertices) {
+        if (v.x < mnx) mnx = v.x;
+        if (v.y < mny) mny = v.y;
+        if (v.x > mxx) mxx = v.x;
+        if (v.y > mxy) mxy = v.y;
+      }
+      isBackgroundSea = (mxx - mnx) * (mxy - mny) >= 0.9;
+    }
+
+    const isHovered = !isBackgroundSea &&
+      pointInPolygon({ x: wx, y: wy }, vertices);
     const isSelected = isObjectSelected('province', prov.id);
 
     const name = getProvinceName(prov);
@@ -2610,10 +2652,10 @@ function redraw() {
       lineWidth = 4;
       shadowBlur = 25;
     } else if (isHovered) {
-      fillColor = prov.type === 'water' ? "rgba(40,140,240,0.45)" : "rgba(255,200,100,0.30)";
+      fillColor = prov.type === 'water' ? "rgba(40,140,240,0.30)" : "rgba(255,200,100,0.25)";
       strokeColor = prov.type === 'water' ? "#77bbff" : "#ffcc44";
       lineWidth = 3.5;
-      shadowBlur = 18;
+      shadowBlur = 8;
     }
 
     ctx.fillStyle = fillColor;
@@ -3556,16 +3598,31 @@ function drawMinimap() {
     if (p.isCity) mctx.fillRect(p.x * S - 1.5, p.y * S - 1.5, 3, 3);
   }
 
-  // Прямоугольник видимой области.
+  // Прямоугольник видимой области (обрезаем границами миникарты).
   const vx = -offsetX / (zoom * canvas.width) * S;
   const vy = -offsetY / (zoom * canvas.height) * S;
   const vw = S / zoom;
   const vh = S / zoom;
 
+  mctx.save();
+  mctx.beginPath();
+  mctx.rect(0, 0, S, S);
+  mctx.clip();
+  mctx.fillStyle = "rgba(255,255,255,0.07)";
+  mctx.fillRect(vx, vy, vw, vh);
   mctx.strokeStyle = "#ffffff";
   mctx.lineWidth = 1;
   mctx.strokeRect(vx, vy, vw, vh);
+  mctx.restore();
 }
+
+// ИЗМЕНЕНО: сворачивание миникарты.
+document.getElementById("minimapToggle")?.addEventListener("click", () => {
+  const mm = document.getElementById("minimap");
+  const hidden = mm.style.display === "none";
+  mm.style.display = hidden ? "block" : "none";
+  document.getElementById("minimapToggle").textContent = hidden ? "−" : "+";
+});
 
 function minimapNav(e) {
   const rect = minimap.getBoundingClientRect();
