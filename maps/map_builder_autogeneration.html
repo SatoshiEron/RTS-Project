@@ -80,7 +80,7 @@
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 6px;
-      max-height: 120px;
+      max-height: 200px;
       overflow-y: auto;
       font-size: 12px;
     }
@@ -226,6 +226,7 @@
     <div class="hint">
       Колёсико — зум. ПКМ — панорамирование. Delete — удалить.<br>
       <strong>Выделение:</strong> Ctrl/Shift+клик — добавить, рамка — множественный выбор, Esc — сбросить.<br>
+      <strong>Линии:</strong> двойной клик по сегменту — вставить точку; свойства — в панели «⚙️ Свойства».<br>
       <strong>Горячие клавиши:</strong> 1-8 режимы, V — вершины, F — вся карта, C — к выделенному, +/− — зум.<br>
       Миникарта (слева внизу): клик/перетаскивание — переход. Двойной клик в списке — центрировать.
     </div>
@@ -245,7 +246,14 @@
 
   <div class="section">
     <h3>Объекты</h3>
+    <input id="objectFilter" type="text" placeholder="🔍 Фильтр по имени/типу..."
+           style="width:100%;margin-bottom:4px;background:#0a0d14;color:#e0e6f5;border:1px solid var(--border);border-radius:6px;padding:4px 6px;font-size:12px;">
     <div id="objectList"></div>
+  </div>
+
+  <div class="section">
+    <h3>⚙️ Свойства</h3>
+    <div id="propsPanel" style="font-size:12px;color:#8892b0;line-height:1.6;">Ничего не выбрано</div>
   </div>
 
   <div class="section">
@@ -3283,6 +3291,51 @@ canvas.addEventListener("wheel", (e) => {
   redraw();
 }, { passive: false });
 
+// ИЗМЕНЕНО: двойной клик по сегменту линии в режиме «Выделение» —
+// вставить новую точку в это место.
+canvas.addEventListener("dblclick", (e) => {
+  if (mode !== "select") return;
+
+  const rect = canvas.getBoundingClientRect();
+  const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+  const { x: wx, y: wy } = screenToWorld(sx, sy);
+
+  let best = null;
+  for (const road of roads) {
+    for (let i = 0; i < road.pointIds.length - 1; i++) {
+      const a = points.find(p => p.id === road.pointIds[i]);
+      const b = points.find(p => p.id === road.pointIds[i + 1]);
+      if (!a || !b) continue;
+
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const len2 = dx * dx + dy * dy;
+      let t = len2 > 0 ? ((wx - a.x) * dx + (wy - a.y) * dy) / len2 : 0;
+      t = Math.max(0, Math.min(1, t));
+
+      const px = a.x + dx * t, py = a.y + dy * t;
+      const s = worldToScreen(px, py);
+      const dScreen = Math.hypot(s.x - sx, s.y - sy);
+
+      if (dScreen < 10 && (!best || dScreen < best.dScreen)) {
+        best = { road, index: i + 1, px, py, dScreen };
+      }
+    }
+  }
+
+  if (!best) return;
+
+  pushUndo();
+  const pt = addPoint(best.px, best.py);
+  best.road.pointIds.splice(best.index, 0, pt.id);
+  selectedObjects = [{ type: 'point', id: pt.id }];
+  updateStatus();
+  updateObjectList();
+  redraw();
+});
+
+// ИЗМЕНЕНО: фильтр списка объектов.
+document.getElementById("objectFilter")?.addEventListener("input", updateObjectList);
+
 // ============================================================
 //  КНОПКИ
 // ============================================================
@@ -3674,6 +3727,12 @@ document.getElementById("exportPngBtn").addEventListener("click", () => {
 function updateObjectList() {
   const list = document.getElementById("objectList");
   list.innerHTML = "";
+
+  // ИЗМЕНЕНО: фильтр по тексту.
+  const filterEl = document.getElementById("objectFilter");
+  const filter = (filterEl?.value || "").trim().toLowerCase();
+  const matches = label => !filter || label.toLowerCase().includes(filter);
+
   if (selectedObjects.length) {
     const summary = document.createElement("div");
     summary.className = "selection-summary";
@@ -3682,6 +3741,7 @@ function updateObjectList() {
   }
 
   const addItem = (type, id, label) => {
+    if (!matches(label)) return;
     const div = document.createElement("div");
     div.textContent = label;
     if (isObjectSelected(type, id)) div.classList.add("selected");
@@ -3704,7 +3764,8 @@ function updateObjectList() {
     const icon = p.isCity
       ? (p.cityType === 'port' ? '⚓' : p.cityType === 'airfield' ? '🛩️' : p.cityType === 'farm' ? '🌾' : p.cityType === 'mine' ? '⛏️' : p.cityType === 'factory' ? '🏭' : p.cityType === 'trade' ? '💰' : '🏙️')
       : (p.isVertex ? '🔹' : '•');
-    addItem('point', p.id, `${icon} Точка #${p.id}${p.isCity ? ` (${p.cityType})` : (p.isVertex ? ' (вершина)' : '')}`);
+    const namePart = p.isCity && p.name ? ` «${p.name}»` : '';
+    addItem('point', p.id, `${icon} Точка #${p.id}${namePart}${p.isCity ? ` (${p.cityType})` : (p.isVertex ? ' (вершина)' : '')}`);
   }
 
   for (const road of roads) {
@@ -3723,6 +3784,180 @@ function updateObjectList() {
   if (!points.length && !roads.length && !provinces.length) {
     list.innerHTML = "<div style='color:#555c78;'>Нет объектов</div>";
   }
+
+  // ИЗМЕНЕНО: обновить панель свойств выделенного.
+  updatePropsPanel();
+}
+
+// Вспомогательные для панели свойств.
+function elPropDiv(text, color) {
+  const d = document.createElement("div");
+  d.textContent = text;
+  if (color) d.style.color = color;
+  d.style.margin = "2px 0";
+  return d;
+}
+function elPropRow(label, control) {
+  const wrap = document.createElement("div");
+  wrap.style.margin = "4px 0";
+  const span = document.createElement("span");
+  span.style.color = "#8892b0";
+  span.textContent = label + ":";
+  wrap.appendChild(span);
+  wrap.appendChild(control);
+  return wrap;
+}
+
+// ============================================================
+//  ПАНЕЛЬ СВОЙСТВ ВЫДЕЛЕННОГО ОБЪЕКТА
+// ============================================================
+function updatePropsPanel() {
+  const panel = document.getElementById("propsPanel");
+  if (!panel) return;
+
+  if (!selectedObjects.length) {
+    panel.innerHTML = "Ничего не выбрано";
+    return;
+  }
+
+  if (selectedObjects.length > 1) {
+    panel.innerHTML = `Выбрано объектов: <b>${selectedObjects.length}</b><br>` +
+      `<span style="color:#666f8c;">Выберите один объект, чтобы редактировать свойства.</span>`;
+    return;
+  }
+
+  const obj = selectedObjects[0];
+  const inputStyle = "width:100%;background:#0a0d14;color:#e0e6f5;border:1px solid var(--border);" +
+                     "border-radius:6px;padding:4px 6px;font-size:12px;margin:2px 0;";
+
+  // ===== ТОЧКА (город) =====
+  if (obj.type === 'point') {
+    const p = points.find(q => q.id === obj.id);
+    if (!p) { panel.innerHTML = "Объект не найден"; return; }
+
+    if (!p.isCity) {
+      panel.innerHTML = "";
+      panel.appendChild(elPropDiv("Точка" + (p.isVertex ? " (вершина провинции)" : "")));
+      panel.appendChild(elPropDiv(`Координаты: (${p.x.toFixed(4)}, ${p.y.toFixed(4)})`));
+      panel.appendChild(elPropDiv("Городом её делают кнопки типа выше («Город», «Порт»…).", "#666f8c"));
+      return;
+    }
+
+    const typeSelect = document.createElement("select");
+    typeSelect.style.cssText = inputStyle;
+    for (const [val, label] of [
+      ['city', '🏙️ Город'], ['port', '⚓ Порт'], ['airfield', '🛩️ Аэродром'],
+      ['farm', '🌾 Ферма'], ['mine', '⛏️ Шахта'], ['factory', '🏭 Завод'], ['trade', '💰 Торговля'],
+    ]) {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = label;
+      if (p.cityType === val) opt.selected = true;
+      typeSelect.appendChild(opt);
+    }
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = p.name || "";
+    nameInput.placeholder = `Город #${p.id}`;
+    nameInput.style.cssText = inputStyle;
+
+    panel.innerHTML = "";
+    panel.appendChild(elPropDiv("🏙️ Город #" + p.id));
+    panel.appendChild(elPropRow("Имя", nameInput));
+    panel.appendChild(elPropRow("Тип", typeSelect));
+
+    nameInput.addEventListener("change", () => {
+      pushUndo();
+      const v = nameInput.value.trim();
+      if (v) p.name = v;
+      else delete p.name;
+      redraw();
+      updateObjectList();
+    });
+    typeSelect.addEventListener("change", () => {
+      pushUndo();
+      p.cityType = typeSelect.value;
+      redraw();
+      updateObjectList();
+    });
+    return;
+  }
+
+  // ===== ПРОВИНЦИЯ =====
+  if (obj.type === 'province') {
+    const prov = provinces.find(q => q.id === obj.id);
+    if (!prov) { panel.innerHTML = "Объект не найден"; return; }
+
+    const nameInput = document.createElement("input");
+    nameInput.type = "text";
+    nameInput.value = getProvinceName(prov);
+    nameInput.style.cssText = inputStyle;
+
+    const typeSelect = document.createElement("select");
+    typeSelect.style.cssText = inputStyle;
+    for (const [val, label] of [['land', '🟩 Суша'], ['water', '🌊 Вода']]) {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = label;
+      if (prov.type === val) opt.selected = true;
+      typeSelect.appendChild(opt);
+    }
+
+    const verts = getProvinceVertices(prov);
+    panel.innerHTML = "";
+    panel.appendChild(elPropDiv((prov.type === 'water' ? '🌊 Вода' : '🟩 Провинция') + " #" + prov.id));
+    panel.appendChild(elPropRow("Имя", nameInput));
+    panel.appendChild(elPropRow("Тип", typeSelect));
+    panel.appendChild(elPropDiv(`Вершин: ${verts.length}`, "#666f8c"));
+
+    nameInput.addEventListener("change", () => {
+      pushUndo();
+      if (!prov.properties) prov.properties = {};
+      prov.properties.name = nameInput.value.trim() || `Province_${prov.id}`;
+      prov.name = prov.properties.name;
+      redraw();
+      updateObjectList();
+    });
+    typeSelect.addEventListener("change", () => {
+      pushUndo();
+      prov.type = typeSelect.value;
+      redraw();
+      updateObjectList();
+    });
+    return;
+  }
+
+  // ===== ЛИНИЯ (дорога/жд/река) =====
+  if (obj.type === 'road') {
+    const road = roads.find(r => r.id === obj.id);
+    if (!road) { panel.innerHTML = "Объект не найден"; return; }
+
+    const typeSelect = document.createElement("select");
+    typeSelect.style.cssText = inputStyle;
+    for (const [val, label] of [['road', '🛤️ Дорога'], ['rail', '🚆 Ж/Д'], ['river', '🌊 Река']]) {
+      const opt = document.createElement("option");
+      opt.value = val;
+      opt.textContent = label;
+      if (road.type === val) opt.selected = true;
+      typeSelect.appendChild(opt);
+    }
+
+    panel.innerHTML = "";
+    panel.appendChild(elPropDiv(`Линия #${road.id}`));
+    panel.appendChild(elPropRow("Тип", typeSelect));
+    panel.appendChild(elPropDiv(`Точек: ${road.pointIds.length}`, "#666f8c"));
+
+    typeSelect.addEventListener("change", () => {
+      pushUndo();
+      road.type = typeSelect.value;
+      redraw();
+      updateObjectList();
+    });
+    return;
+  }
+
+  panel.innerHTML = "Неизвестный объект";
 }
 
 // ============================================================
