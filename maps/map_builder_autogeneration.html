@@ -102,12 +102,23 @@
     .btn-group { display: flex; flex-wrap: wrap; gap: 2px; }
     .btn-group button { flex: 1; min-width: 60px; }
     #zoomLevel { margin-left: 8px; color: #8892b0; font-size: 12px; }
+    #minimap {
+      position: absolute;
+      left: 12px;
+      bottom: 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: rgba(10, 13, 20, 0.92);
+      z-index: 5;
+      cursor: crosshair;
+    }
   </style>
 </head>
 <body>
 
 <div id="canvasContainer">
   <canvas id="mapCanvas" width="1280" height="720"></canvas>
+  <canvas id="minimap" width="180" height="180" title="Миникарта — клик для перехода"></canvas>
   <div id="dropHint">Перетащите PNG‑карту сюда</div>
 </div>
 
@@ -180,6 +191,8 @@
   <div class="section">
     <h3>🔍 Управление</h3>
     <button id="centerBtn">🎯 Центр</button>
+    <button id="fitBtn" title="Показать всю карту (F)">🗺️ Вся карта</button>
+    <button id="centerSelBtn" title="Центрировать на выделенном (C)">🎯 К выделенному</button>
     <button id="findOrphansBtn" style="color:#ffaa44;">🔍 Найти сирот</button>
     <button id="mergeVerticesBtn" style="color:#66dd88;">🔗 Слить границы</button>
     <!-- ИЗМЕНЕНО: управление автогенерацией провинций -->
@@ -213,7 +226,8 @@
     <div class="hint">
       Колёсико — зум. ПКМ — панорамирование. Delete — удалить.<br>
       <strong>Выделение:</strong> Ctrl/Shift+клик — добавить, рамка — множественный выбор, Esc — сбросить.<br>
-      <strong>Горячие клавиши:</strong> 1-8 режимы, V — показать вершины.
+      <strong>Горячие клавиши:</strong> 1-8 режимы, V — вершины, F — вся карта, C — к выделенному, +/− — зум.<br>
+      Миникарта (слева внизу): клик/перетаскивание — переход. Двойной клик в списке — центрировать.
     </div>
   </div>
 
@@ -2804,6 +2818,7 @@ function redraw() {
 
   // ИЗМЕНЕНО: любое изменение заканчивается redraw — удобная точка
   // для автосохранения (само сохранение откладывается и дебаунсится).
+  drawMinimap();
   scheduleAutosave();
 }
 
@@ -3225,6 +3240,28 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
+  // ИЗМЕНЕНО: навигация с клавиатуры.
+  if (e.key === "f" || e.key === "F" || e.key === "а" || e.key === "А") {
+    fitZoomToContent();
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "c" || e.key === "C" || e.key === "с" || e.key === "С") {
+    centerOnSelection();
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "+" || e.key === "=") {
+    document.getElementById("zoomInBtn").click();
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "-" || e.key === "_") {
+    document.getElementById("zoomOutBtn").click();
+    e.preventDefault();
+    return;
+  }
+
   if (e.ctrlKey && e.key.toLowerCase() === "z") { e.preventDefault(); restoreUndo(); }
 });
 
@@ -3321,6 +3358,182 @@ document.getElementById("zoomResetBtn").addEventListener("click", () => {
   zoom = 1; offsetX = 0; offsetY = 0;
   document.getElementById("zoomLevel").textContent = "100%";
   redraw();
+});
+
+// ============================================================
+//  НАВИГАЦИЯ: ZOOM TO FIT / ЦЕНТР НА ВЫДЕЛЕННОМ
+// ============================================================
+
+// Границы контента карты (точки + вершины провинций).
+function getContentBounds() {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  let has = false;
+
+  const consider = (x, y) => {
+    if (x < minX) minX = x;
+    if (y < minY) minY = y;
+    if (x > maxX) maxX = x;
+    if (y > maxY) maxY = y;
+    has = true;
+  };
+
+  for (const p of points) consider(p.x, p.y);
+  for (const prov of provinces) {
+    for (const v of getProvinceVertices(prov)) consider(v.x, v.y);
+  }
+
+  return has ? { minX, minY, maxX, maxY } : null;
+}
+
+// «Показать всю карту»: вписать весь контент во вьюпорт.
+function fitZoomToContent() {
+  const b = getContentBounds();
+
+  if (!b) {
+    zoom = 1; offsetX = 0; offsetY = 0;
+  } else {
+    const margin = 0.05;
+    const w = (b.maxX - b.minX) + margin * 2;
+    const h = (b.maxY - b.minY) + margin * 2;
+
+    zoom = Math.min(5, Math.max(0.3, Math.min(1 / w, 1 / h)));
+
+    const cx = (b.minX + b.maxX) / 2;
+    const cy = (b.minY + b.maxY) / 2;
+    offsetX = canvas.width / 2 - cx * zoom * canvas.width;
+    offsetY = canvas.height / 2 - cy * zoom * canvas.height;
+  }
+
+  document.getElementById("zoomLevel").textContent = Math.round(zoom * 100) + "%";
+  redraw();
+}
+
+// Центр камеры на выделенных объектах (зум не меняем).
+function centerOnSelection() {
+  const coords = [];
+
+  for (const obj of selectedObjects) {
+    if (obj.type === 'point') {
+      const p = points.find(q => q.id === obj.id);
+      if (p) coords.push(p);
+    } else if (obj.type === 'road') {
+      const road = roads.find(r => r.id === obj.id);
+      if (road) {
+        for (const id of road.pointIds) {
+          const p = points.find(q => q.id === id);
+          if (p) coords.push(p);
+        }
+      }
+    } else if (obj.type === 'province') {
+      const prov = provinces.find(p => p.id === obj.id);
+      if (prov) coords.push(...getProvinceVertices(prov));
+    }
+  }
+
+  if (!coords.length) {
+    alert("Сначала выдели объект на карте или в списке.");
+    return;
+  }
+
+  const cx = coords.reduce((s, p) => s + p.x, 0) / coords.length;
+  const cy = coords.reduce((s, p) => s + p.y, 0) / coords.length;
+
+  offsetX = canvas.width / 2 - cx * zoom * canvas.width;
+  offsetY = canvas.height / 2 - cy * zoom * canvas.height;
+  redraw();
+}
+
+document.getElementById("fitBtn").addEventListener("click", fitZoomToContent);
+document.getElementById("centerSelBtn").addEventListener("click", centerOnSelection);
+
+// ============================================================
+//  МИНИКАРТА
+// ============================================================
+const minimap = document.getElementById("minimap");
+let minimapDragging = false;
+
+function drawMinimap() {
+  if (!minimap) return;
+  const mctx = minimap.getContext("2d");
+  const S = minimap.width;
+
+  mctx.clearRect(0, 0, S, S);
+
+  // Фон «моря».
+  mctx.fillStyle = "rgba(20,40,80,0.6)";
+  mctx.fillRect(0, 0, S, S);
+
+  // Провинции.
+  for (const prov of provinces) {
+    const verts = getProvinceVertices(prov);
+    if (verts.length < 3) continue;
+
+    mctx.beginPath();
+    verts.forEach((v, i) => {
+      if (i === 0) mctx.moveTo(v.x * S, v.y * S);
+      else mctx.lineTo(v.x * S, v.y * S);
+    });
+    mctx.closePath();
+    mctx.fillStyle = prov.type === 'water'
+      ? "rgba(40,110,210,0.55)"
+      : "rgba(120,180,90,0.5)";
+    mctx.fill();
+  }
+
+  // Линии.
+  for (const road of roads) {
+    mctx.strokeStyle =
+      road.type === 'river' ? "#44aaee" :
+      road.type === 'rail' ? "#ddbb33" : "#bbbbbb";
+    mctx.lineWidth = 1;
+    mctx.beginPath();
+    let started = false;
+    for (const id of road.pointIds) {
+      const p = points.find(q => q.id === id);
+      if (!p) continue;
+      if (started) mctx.lineTo(p.x * S, p.y * S);
+      else { mctx.moveTo(p.x * S, p.y * S); started = true; }
+    }
+    mctx.stroke();
+  }
+
+  // Города.
+  mctx.fillStyle = "#ffee66";
+  for (const p of points) {
+    if (p.isCity) mctx.fillRect(p.x * S - 1.5, p.y * S - 1.5, 3, 3);
+  }
+
+  // Прямоугольник видимой области.
+  const vx = -offsetX / (zoom * canvas.width) * S;
+  const vy = -offsetY / (zoom * canvas.height) * S;
+  const vw = S / zoom;
+  const vh = S / zoom;
+
+  mctx.strokeStyle = "#ffffff";
+  mctx.lineWidth = 1;
+  mctx.strokeRect(vx, vy, vw, vh);
+}
+
+function minimapNav(e) {
+  const rect = minimap.getBoundingClientRect();
+  const wx = (e.clientX - rect.left) / rect.width;
+  const wy = (e.clientY - rect.top) / rect.height;
+
+  offsetX = canvas.width / 2 - wx * zoom * canvas.width;
+  offsetY = canvas.height / 2 - wy * zoom * canvas.height;
+  redraw();
+}
+
+minimap.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  minimapDragging = true;
+  minimapNav(e);
+});
+minimap.addEventListener("pointermove", (e) => {
+  if (minimapDragging) minimapNav(e);
+});
+window.addEventListener("pointerup", () => {
+  minimapDragging = false;
 });
 
 // ============================================================
@@ -3476,6 +3689,12 @@ function updateObjectList() {
       selectObject(type, id, e.ctrlKey || e.shiftKey);
       updateObjectList();
       redraw();
+    });
+    // ИЗМЕНЕНО: двойной клик — выделить и центрировать камеру.
+    div.addEventListener("dblclick", () => {
+      selectedObjects = [{ type, id }];
+      updateObjectList();
+      centerOnSelection();
     });
     list.appendChild(div);
   };
