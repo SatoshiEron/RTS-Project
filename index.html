@@ -1281,6 +1281,7 @@
     let selectionManager = null;
 
     let animationFrameId = null;
+    let lastFrameTime = null;
     let pendingBackgroundImage = null;
 
     fileLoader.addEventListener("change", async (e) => {
@@ -1291,6 +1292,7 @@
         if (animationFrameId !== null) {
           cancelAnimationFrame(animationFrameId);
           animationFrameId = null;
+          lastFrameTime = null;
         }
 
         const text = await file.text();
@@ -1712,13 +1714,18 @@
       showDraftSetupOverlay();
     });
 
-    function loop() {
+    function loop(now = performance.now()) {
       if (!game || !renderer) {
         animationFrameId = null;
         return;
       }
 
-      const dt = 0.016;
+      if (lastFrameTime === null) {
+        lastFrameTime = now;
+      }
+
+      const dt = Math.min(0.1, (now - lastFrameTime) / 1000);
+      lastFrameTime = now;
 
       game.update(dt);
       renderer.render();
