@@ -2801,6 +2801,10 @@ function redraw() {
   }
 
   drawSelectionBox();
+
+  // ИЗМЕНЕНО: любое изменение заканчивается redraw — удобная точка
+  // для автосохранения (само сохранение откладывается и дебаунсится).
+  scheduleAutosave();
 }
 
 // ============================================================
@@ -3671,6 +3675,103 @@ document.getElementById("validateBtn").addEventListener("click", () => {
     : `⛔ Найдено ошибок: ${errs}, предупреждений: ${warns}.\nПодробности — в панели под кнопкой.`);
 });
 
+// ============================================================
+//  АВТОСОХРАНЕНИЕ В БРАУЗЕРЕ
+// ============================================================
+const AUTOSAVE_KEY = "mapbuilder.autosave.v1";
+let autosaveTimer = null;
+let autosaveSavedAt = null;
+let autosaveArmed = false; // не перезаписываем сохранение до решения о восстановлении
+
+function scheduleAutosave() {
+  if (!autosaveArmed) return;
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(saveAutosaveNow, 1500);
+}
+
+function saveAutosaveNow() {
+  autosaveTimer = null;
+  try {
+    const payload = {
+      savedAt: Date.now(),
+      world: getWorldData()
+    };
+    localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(payload));
+    autosaveSavedAt = payload.savedAt;
+    updateAutosaveStatus();
+  } catch (err) {
+    // localStorage может быть переполнен или недоступен — не мешаем работе.
+    console.warn("⚠️ Автосохранение не удалось:", err.message);
+  }
+}
+
+function updateAutosaveStatus() {
+  const el = document.getElementById("autosaveStatus");
+  if (!el) return;
+  if (!autosaveSavedAt) {
+    el.textContent = "Автосохранение: пока нет";
+    return;
+  }
+  const t = new Date(autosaveSavedAt);
+  const hh = String(t.getHours()).padStart(2, "0");
+  const mm = String(t.getMinutes()).padStart(2, "0");
+  const ss = String(t.getSeconds()).padStart(2, "0");
+  el.textContent = `💾 Автосохранение: ${hh}:${mm}:${ss}`;
+}
+
+// Восстановление автосохранения при запуске (спрашиваем пользователя).
+function offerAutosaveRestore() {
+  let payload = null;
+  try {
+    const raw = localStorage.getItem(AUTOSAVE_KEY);
+    if (raw) payload = JSON.parse(raw);
+  } catch (err) {
+    console.warn("⚠️ Не удалось прочитать автосохранение:", err.message);
+    return;
+  }
+
+  if (!payload || !payload.world ||
+      (!payload.world.points?.length && !payload.world.provinces?.length)) {
+    return;
+  }
+
+  const t = new Date(payload.savedAt || Date.now());
+  const when = t.toLocaleString();
+  const counts =
+    `${payload.world.points?.length || 0} точек, ` +
+    `${payload.world.roads?.length || 0} линий, ` +
+    `${payload.world.provinces?.length || 0} провинций`;
+
+  if (!confirm(`💾 Найдено автосохранение (${when}).\n${counts}.\nВосстановить?`)) {
+    return;
+  }
+
+  const data = payload.world;
+  points = data.points || [];
+  roads = data.roads || [];
+  provinces = data.provinces || [];
+  nextPointId = data.nextPointId || 1;
+  nextRoadId = data.nextRoadId || 1;
+  nextProvinceId = data.nextProvinceId || 1;
+  selectedObjects = [];
+  currentPolyline = []; currentPolygon = []; tracePoints = [];
+  provincePaintPoints = []; connectPoints = [];
+  orphanPoints = [];
+  isPaintingProvince = false;
+  isTracing = false;
+  draggedPointId = null;
+  isSelectingBox = false;
+  groupDragOriginalPositions.clear();
+  dragUndoPushed = false;
+  snapPreviewPointId = null;
+
+  autosaveSavedAt = payload.savedAt;
+  redraw();
+  updateObjectList();
+  updateStatus();
+  alert('✅ Автосохранение восстановлено.');
+}
+
 document.getElementById("loadJsonBtn").addEventListener("click", () => document.getElementById("jsonFileInput").click());
 document.getElementById("jsonFileInput").addEventListener("change", (e) => {
   const file = e.target.files[0];
@@ -3959,6 +4060,9 @@ setMode("select");
 redraw();
 updateObjectList();
 updateStatus();
+updateAutosaveStatus();
+autosaveArmed = true; // дальше redraw будет планировать автосохранение
+offerAutosaveRestore();
 console.log("🗺️ Map Builder — исправленный");
 console.log("📖 Режимы: выделение, дорога, ж/д, река, суша, обводка, провинции, соединить");
 console.log("🔍 Найти сирот — точки без привязки к дорогам или провинциям");
