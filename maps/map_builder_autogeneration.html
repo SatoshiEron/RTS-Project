@@ -222,8 +222,11 @@
     <button id="saveWorldBtn">💾 Сохранить world.json</button>
     <button id="loadJsonBtn">📂 Загрузить JSON</button>
     <input type="file" id="jsonFileInput" accept=".json" style="display:none;">
+    <button id="validateBtn" style="color:#88ccff;">🩺 Проверить карту</button>
     <button id="clearBtn" style="color:#ff6666;">🗑️ Очистить всё</button>
     <button id="undoBtn">↩️ Отмена (Ctrl+Z)</button>
+    <div id="autosaveStatus" class="hint" style="margin-top:4px;"></div>
+    <div id="validationReport" style="display:none;margin-top:6px;font-size:12px;line-height:1.5;"></div>
   </div>
 
   <div class="section">
@@ -2568,7 +2571,9 @@ function redraw() {
     const isHovered = pointInPolygon({ x: wx, y: wy }, vertices);
     const isSelected = isObjectSelected('province', prov.id);
 
-    const name = prov.properties?.name || '';
+    const name = getProvinceName(prov);
+    if (!prov.properties) prov.properties = {};
+    if (!prov.properties.name) prov.properties.name = name;
 
     ctx.save();
 
@@ -3485,7 +3490,7 @@ function updateObjectList() {
   }
 
   for (const prov of provinces) {
-    const name = prov.properties?.name || `Province #${prov.id}`;
+    const name = getProvinceName(prov);
     const icon = prov.type === 'water' ? '🌊' : '🟩';
     const typeLabel = prov.type === 'water' ? 'вода' : 'суша';
     const count = prov.vertexIds ? prov.vertexIds.length : (prov.vertices ? prov.vertices.length : 0);
@@ -3498,13 +3503,137 @@ function updateObjectList() {
 }
 
 // ============================================================
+//  ПРОВЕРКА КАРТЫ ПЕРЕД ЭКСПОРТОМ
+// ============================================================
+
+// Имя провинции: движок RTS читает prov.name, редактор хранит в properties.name.
+function getProvinceName(prov) {
+  return prov.properties?.name || prov.name || `Province_${prov.id}`;
+}
+
+function validateWorld() {
+  const issues = [];
+  const err = t => issues.push({ level: 'error', text: t });
+  const warn = t => issues.push({ level: 'warn', text: t });
+
+  // Дубликаты id.
+  const dupCheck = (items, label) => {
+    const seen = new Set();
+    for (const it of items) {
+      if (!it || it.id === undefined) continue;
+      if (seen.has(it.id)) err(`Дубликат id у ${label}: #${it.id}`);
+      seen.add(it.id);
+    }
+  };
+  dupCheck(points, 'точки');
+  dupCheck(roads, 'дорог');
+  dupCheck(provinces, 'провинций');
+
+  const pointById = new Map(points.map(p => [p.id, p]));
+
+  // Точки за пределами карты.
+  for (const p of points) {
+    if (p.x < 0 || p.x > 1 || p.y < 0 || p.y > 1) {
+      warn(`Точка #${p.id} за пределами карты (${p.x.toFixed(3)}, ${p.y.toFixed(3)})`);
+    }
+  }
+
+  // Дороги/реки/жд.
+  for (const road of roads) {
+    const broken = road.pointIds.filter(id => !pointById.has(id));
+    if (broken.length) {
+      err(`Линия #${road.id} (${road.type}): ${broken.length} битых ссылок на точки`);
+    }
+    if (road.pointIds.length < 2) {
+      err(`Линия #${road.id} (${road.type}): меньше 2 точек`);
+    }
+  }
+
+  // Провинции.
+  for (const prov of provinces) {
+    const ids = prov.vertexIds || [];
+    const verts = prov.vertices || [];
+    const broken = ids.filter(id => !pointById.has(id));
+    if (broken.length) err(`Провинция «${getProvinceName(prov)}» (#${prov.id}): ${broken.length} вершин без точек`);
+    if (ids.length < 3 && verts.length < 3) {
+      err(`Провинция «${getProvinceName(prov)}» (#${prov.id}): меньше 3 вершин`);
+    }
+  }
+
+  const landProvinces = provinces.filter(p => p.type !== 'water');
+  const waterProvinces = provinces.filter(p => p.type === 'water');
+  if (!landProvinces.length) err('Нет полигонов суши (type land) — в игре будет нечего захватывать');
+  if (!waterProvinces.length) warn('Нет водной провинции — в игре не будет моря');
+
+  // Города.
+  const cities = points.filter(p => p.isCity);
+  if (!cities.length) {
+    err('Нет городов (точек с isCity) — драфт провинций невозможен');
+  }
+  for (const c of cities) {
+    const prov = getProvinceAt(c.x, c.y);
+    if (!prov) {
+      warn(`Город #${c.id} (${c.x.toFixed(3)}, ${c.y.toFixed(3)}) не принадлежит ни одной провинции`);
+    } else if (prov.type === 'water') {
+      err(`Город #${c.id} находится в воде (провинция «${getProvinceName(prov)}» #${prov.id})`);
+    }
+  }
+
+  // Провинции с городами — движку нужно минимум 2.
+  const cityProvinceIds = new Set();
+  for (const c of cities) {
+    const prov = getProvinceAt(c.x, c.y);
+    if (prov) cityProvinceIds.add(prov.id);
+  }
+  if (cityProvinceIds.size < 2) {
+    err(`Провинций с городами: ${cityProvinceIds.size} — для драфта в RTS нужно минимум 2`);
+  }
+
+  // Сироты: точки ни в линиях, ни в провинциях.
+  const usedIds = new Set();
+  for (const road of roads) for (const id of road.pointIds) usedIds.add(id);
+  for (const prov of provinces) for (const id of (prov.vertexIds || [])) usedIds.add(id);
+  const orphans = points.filter(p => !usedIds.has(p.id) && !p.isCity);
+  if (orphans.length) {
+    warn(`${orphans.length} точек-сирот (не используются ни в линиях, ни в провинциях) — можно удалить кнопкой «Удалить сирот»`);
+  }
+
+  return issues;
+}
+
+// Показывает отчёт в панели. Возвращает true, если ошибок нет.
+function renderValidationReport(issues) {
+  const box = document.getElementById("validationReport");
+  if (!box) return true;
+
+  if (!issues.length) {
+    box.style.display = "block";
+    box.innerHTML = "<div style='color:#66dd88;'>✅ Проблем не найдено — карта готова к экспорту.</div>";
+    return true;
+  }
+
+  box.style.display = "block";
+  box.innerHTML = issues.map(i =>
+    `<div style="color:${i.level === 'error' ? '#ff7777' : '#ffcc66'};">` +
+    `${i.level === 'error' ? '⛔' : '⚠️'} ${i.text}</div>`
+  ).join("");
+
+  return !issues.some(i => i.level === 'error');
+}
+
+// ============================================================
 //  СОХРАНЕНИЕ
 // ============================================================
 function getWorldData() {
   return {
     points,
     roads,
-    provinces,
+    // ИЗМЕНЕНО: имя провинции дублируется в prov.name — именно его
+    // читает движок RTS (properties.name оставлен для обратной совместимости).
+    provinces: provinces.map(p => ({
+      ...p,
+      name: getProvinceName(p)
+    })),
     nextPointId,
     nextRoadId,
     nextProvinceId
@@ -3512,6 +3641,14 @@ function getWorldData() {
 }
 
 document.getElementById("saveWorldBtn").addEventListener("click", () => {
+  // Проверка перед экспортом: ошибки требуют подтверждения.
+  const issues = validateWorld();
+  const ok = renderValidationReport(issues);
+  if (!ok) {
+    const errCount = issues.filter(i => i.level === 'error').length;
+    if (!confirm(`В карте найдено ошибок: ${errCount}.\nЭкспортировать всё равно?`)) return;
+  }
+
   const data = getWorldData();
   const json = JSON.stringify(data, null, 2);
   const blob = new Blob([json], { type: 'application/json' });
@@ -3522,6 +3659,16 @@ document.getElementById("saveWorldBtn").addEventListener("click", () => {
   a.click();
   URL.revokeObjectURL(url);
   document.getElementById("jsonArea").value = json;
+});
+
+document.getElementById("validateBtn").addEventListener("click", () => {
+  const issues = validateWorld();
+  const ok = renderValidationReport(issues);
+  const errs = issues.filter(i => i.level === 'error').length;
+  const warns = issues.length - errs;
+  alert(ok
+    ? `✅ Проверка пройдена.\nПредупреждений: ${warns}`
+    : `⛔ Найдено ошибок: ${errs}, предупреждений: ${warns}.\nПодробности — в панели под кнопкой.`);
 });
 
 document.getElementById("loadJsonBtn").addEventListener("click", () => document.getElementById("jsonFileInput").click());
