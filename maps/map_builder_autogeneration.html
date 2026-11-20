@@ -186,10 +186,19 @@
     <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-top:4px;">
       <label for="provinceCountInput" style="font-size:12px;color:#a0b0d0;">N:</label>
       <input id="provinceCountInput" type="number" min="1" max="500" value="25"
-             style="width:72px;background:#0a0d14;color:#e0e6f5;border:1px solid var(--border);border-radius:6px;padding:5px;">
+             style="width:60px;background:#0a0d14;color:#e0e6f5;border:1px solid var(--border);border-radius:6px;padding:5px;">
+      <label for="provinceSeedInput" style="font-size:12px;color:#a0b0d0;">Seed:</label>
+      <input id="provinceSeedInput" type="number" min="0" value="" placeholder="случ."
+             style="width:64px;background:#0a0d14;color:#e0e6f5;border:1px solid var(--border);border-radius:6px;padding:5px;">
       <button id="autoGenerateProvincesBtn" style="color:#a8e6ff;">🗺️ Автогенерация</button>
     </div>
-    <div class="hint">N — число новых провинций суши. Сетка: 100×100.</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:4px;font-size:12px;color:#a0b0d0;">
+      <label><input type="checkbox" id="optSnapCoast" checked> Берега по контурам</label>
+      <label><input type="checkbox" id="optRespectRivers" checked> Реки как границы</label>
+    </div>
+    <div class="hint">N — число провинций суши. Границы провинций строятся внутри
+      нарисованных полигонов суши; берег повторяет исходный контур, реки не пересекаются.
+      Пустой seed — случайный (подставится в поле).</div>
     <button id="toggleVerticesBtn" style="color:#88ccff;">👁️ Показать вершины (V)</button>
     <button id="fillWaterBtn" style="color:#66bbff;">💧 Залить водой</button>
     <button id="makeWaterBtn" style="color:#66bbff;">🌊 Сделать морем</button>
@@ -765,8 +774,38 @@ function isPointOnLand(x, y, landPolygons) {
   );
 }
 
+// ИЗМЕНЕНО: водные полигоны, НЕ являющиеся фоновым морем.
+// Фоновое море (залито «💧 Залить водой») покрывает ~всю карту — его игнорируем.
+// Нарисованные вручную озёра/заливы внутри суши исключают клетки из генерации.
+function getWaterExclusionPolygons() {
+  const result = [];
+
+  for (const prov of provinces) {
+    if (prov.type !== "water") continue;
+
+    const vertices = getProvinceVertices(prov);
+    if (vertices.length < 3) continue;
+
+    let minX = 1, minY = 1, maxX = 0, maxY = 0;
+    for (const v of vertices) {
+      if (v.x < minX) minX = v.x;
+      if (v.y < minY) minY = v.y;
+      if (v.x > maxX) maxX = v.x;
+      if (v.y > maxY) maxY = v.y;
+    }
+
+    // Фоновое море: bbox покрывает практически всю карту.
+    if ((maxX - minX) * (maxY - minY) >= 0.9) continue;
+
+    result.push(vertices);
+  }
+
+  return result;
+}
+
 // ИЗМЕНЕНО: растеризация суши в сетку.
-function rasterizeLand(gridSize, landPolygons) {
+// exclusionPolygons — внутренние воды (озёра/заливы), которые вырезаем из суши.
+function rasterizeLand(gridSize, landPolygons, exclusionPolygons = []) {
   const cells = [];
 
   for (let row = 0; row < gridSize; row++) {
@@ -774,17 +813,122 @@ function rasterizeLand(gridSize, landPolygons) {
       const x = (col + 0.5) / gridSize;
       const y = (row + 0.5) / gridSize;
 
-      if (isPointOnLand(x, y, landPolygons)) {
-        cells.push({ row, col, x, y, cluster: -1 });
-      }
+      if (!isPointOnLand(x, y, landPolygons)) continue;
+      if (exclusionPolygons.length &&
+          isPointOnLand(x, y, exclusionPolygons)) continue;
+
+      cells.push({ row, col, x, y, cluster: -1 });
     }
   }
 
   return cells;
 }
 
-// ИЗМЕНЕНО: равномерный выбор центров методом наиболее удалённой точки.
-function chooseProvinceSeeds(cells, requestedCount) {
+// ============================================================
+// РЕКИ КАК БАРЬЕРЫ ДЛЯ ГЕНЕРАЦИИ
+// ============================================================
+
+// Сегменты всех рек (тип road === "river") в виде {x1,y1,x2,y2}.
+function getRiverSegments() {
+  const segments = [];
+
+  for (const road of roads) {
+    if (road.type !== "river") continue;
+
+    for (let i = 0; i < road.pointIds.length - 1; i++) {
+      const a = points.find(p => p.id === road.pointIds[i]);
+      const b = points.find(p => p.id === road.pointIds[i + 1]);
+      if (!a || !b) continue;
+      segments.push({ x1: a.x, y1: a.y, x2: b.x, y2: b.y });
+    }
+  }
+
+  return segments;
+}
+
+// Множество рёбер соседства клеток "c1,r1|c2,r2", которые пересекает река.
+// Строится семплированием: идём вдоль каждого сегмента мелкими шагами,
+// отмечаем посещённые клетки; переход между соседними клетками = пересечённое ребро.
+function computeRiverAdjacency(gridSize, riverSegments) {
+  const adjacency = new Set();
+  const key = (c1, r1, c2, r2) =>
+    (c1 < c2 || (c1 === c2 && r1 <= r2))
+      ? `${c1},${r1}|${c2},${r2}`
+      : `${c2},${r2}|${c1},${r1}`;
+
+  const step = 0.5 / gridSize;
+
+  for (const seg of riverSegments) {
+    const dx = seg.x2 - seg.x1;
+    const dy = seg.y2 - seg.y1;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-9) continue;
+
+    const steps = Math.max(1, Math.ceil(len / step));
+    let prevC = -1, prevR = -1;
+
+    for (let i = 0; i <= steps; i++) {
+      const t = i / steps;
+      const x = seg.x1 + dx * t;
+      const y = seg.y1 + dy * t;
+
+      const c = Math.max(0, Math.min(gridSize - 1, Math.floor(x * gridSize)));
+      const r = Math.max(0, Math.min(gridSize - 1, Math.floor(y * gridSize)));
+
+      if (prevC !== -1 && (c !== prevC || r !== prevR) &&
+          Math.abs(c - prevC) + Math.abs(r - prevR) === 1) {
+        adjacency.add(key(prevC, prevR, c, r));
+      }
+
+      prevC = c;
+      prevR = r;
+    }
+  }
+
+  return adjacency;
+}
+
+// Сколько «речных рёбер» пересекает прямая линия от (x1,y1) до (x2,y2).
+// Используется как штраф в назначении клеток центрам провинций:
+// граница Вороного неохотно пересекает реки.
+function countRiverCrossingsOnLine(x1, y1, x2, y2, gridSize, riverAdjacency) {
+  if (!riverAdjacency.size) return 0;
+
+  const key = (c1, r1, c2, r2) =>
+    (c1 < c2 || (c1 === c2 && r1 <= r2))
+      ? `${c1},${r1}|${c2},${r2}`
+      : `${c2},${r2}|${c1},${r1}`;
+
+  const dist = Math.hypot(x2 - x1, y2 - y1);
+  const steps = Math.max(2, Math.ceil(dist * gridSize * 2));
+  let crossings = 0;
+  let prevC = -1, prevR = -1;
+
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const x = x1 + (x2 - x1) * t;
+    const y = y1 + (y2 - y1) * t;
+
+    const c = Math.max(0, Math.min(gridSize - 1, Math.floor(x * gridSize)));
+    const r = Math.max(0, Math.min(gridSize - 1, Math.floor(y * gridSize)));
+
+    if (prevC !== -1 && (c !== prevC || r !== prevR) &&
+        Math.abs(c - prevC) + Math.abs(r - prevR) === 1 &&
+        riverAdjacency.has(key(prevC, prevR, c, r))) {
+      crossings++;
+    }
+
+    prevC = c;
+    prevR = r;
+  }
+
+  return crossings;
+}
+
+// ИЗМЕНЕНО: выбор центров методом наиболее удалённой точки.
+// rng (опционально) — для воспроизводимой генерации с заданным seed:
+// первый центр выбирается случайно, дальнейшие — farthest-point с шумом.
+function chooseProvinceSeeds(cells, requestedCount, rng = null) {
   if (!cells.length) return [];
 
   const count = Math.min(requestedCount, cells.length);
@@ -794,16 +938,31 @@ function chooseProvinceSeeds(cells, requestedCount) {
   const centerY = cells.reduce((sum, cell) => sum + cell.y, 0) / cells.length;
 
   let firstIndex = 0;
-  let firstDistance = Infinity;
 
-  for (let i = 0; i < cells.length; i++) {
-    const dx = cells[i].x - centerX;
-    const dy = cells[i].y - centerY;
-    const distance = dx * dx + dy * dy;
+  if (rng) {
+    // Случайный первый центр (со смещением к центру масс суши).
+    const weights = cells.map(c => {
+      const dx = c.x - centerX, dy = c.y - centerY;
+      return 1 / (1 + 30 * (dx * dx + dy * dy));
+    });
+    let totalW = 0;
+    for (const w of weights) totalW += w;
+    let roll = rng() * totalW;
+    for (let i = 0; i < cells.length; i++) {
+      roll -= weights[i];
+      if (roll <= 0) { firstIndex = i; break; }
+    }
+  } else {
+    let firstDistance = Infinity;
+    for (let i = 0; i < cells.length; i++) {
+      const dx = cells[i].x - centerX;
+      const dy = cells[i].y - centerY;
+      const distance = dx * dx + dy * dy;
 
-    if (distance < firstDistance) {
-      firstDistance = distance;
-      firstIndex = i;
+      if (distance < firstDistance) {
+        firstDistance = distance;
+        firstIndex = i;
+      }
     }
   }
 
@@ -826,8 +985,13 @@ function chooseProvinceSeeds(cells, requestedCount) {
         minDistances[i] = distanceToPrevious;
       }
 
-      if (minDistances[i] > bestDistance) {
-        bestDistance = minDistances[i];
+      // Шум рвёт симметричные связи при одинаковых расстояниях.
+      const score = rng
+        ? minDistances[i] * (0.9 + 0.2 * rng())
+        : minDistances[i];
+
+      if (score > bestDistance) {
+        bestDistance = score;
         bestIndex = i;
       }
     }
@@ -839,7 +1003,12 @@ function chooseProvinceSeeds(cells, requestedCount) {
 }
 
 // ИЗМЕНЕНО: присваиваем каждой клетке ближайший центр Вороного.
-function assignCellsToSeeds(cells, seeds) {
+// riverAdjacency — рёбра соседства, пересекаемые реками: каждое пересечение
+// добавляет штраф к расстоянию, поэтому границы тяготеют вдоль рек,
+// а не через них.
+function assignCellsToSeeds(cells, seeds, gridSize = 100, riverAdjacency = null) {
+  const RIVER_PENALTY = 0.08; // ≈ 8 клеток сетки за одно пересечение
+
   for (const cell of cells) {
     let nearestSeed = 0;
     let nearestDistance = Infinity;
@@ -847,7 +1016,15 @@ function assignCellsToSeeds(cells, seeds) {
     for (let i = 0; i < seeds.length; i++) {
       const dx = cell.x - seeds[i].x;
       const dy = cell.y - seeds[i].y;
-      const distance = dx * dx + dy * dy;
+      let distance = Math.sqrt(dx * dx + dy * dy);
+
+      if (riverAdjacency && riverAdjacency.size) {
+        const crossings = countRiverCrossingsOnLine(
+          cell.x, cell.y, seeds[i].x, seeds[i].y,
+          gridSize, riverAdjacency
+        );
+        if (crossings > 0) distance += RIVER_PENALTY * crossings;
+      }
 
       if (distance < nearestDistance) {
         nearestDistance = distance;
@@ -945,8 +1122,12 @@ function simplifyGridLoop(loop) {
 // Сглаживание кластеров на уровне сетки, с защитой
 // мелких провинций.
 // ============================================================
-function smoothClusters(cells, gridSize, clusterCount, iterations = 1, minProtectedSize = 3) {
+function smoothClusters(cells, gridSize, clusterCount, iterations = 1, minProtectedSize = 3, riverAdjacency = null) {
   const cellMap = new Map(cells.map(c => [`${c.col},${c.row}`, c]));
+  const adjKey = (c1, r1, c2, r2) =>
+    (c1 < c2 || (c1 === c2 && r1 <= r2))
+      ? `${c1},${r1}|${c2},${r2}`
+      : `${c2},${r2}|${c1},${r1}`;
 
   for (let it = 0; it < iterations; it++) {
     const clusterSizes = new Array(clusterCount).fill(0);
@@ -971,6 +1152,15 @@ function smoothClusters(cells, gridSize, clusterCount, iterations = 1, minProtec
       for (const k of neighborKeys) {
         const n = cellMap.get(k);
         if (!n) continue;
+
+        // ИЗМЕНЕНО: кластер не перетекает через реку —
+        // голос соседа по другому берегу не учитывается.
+        if (riverAdjacency && riverAdjacency.size) {
+          if (riverAdjacency.has(adjKey(cell.col, cell.row, n.col, n.row))) {
+            continue;
+          }
+        }
+
         counts[n.cluster]++;
         total++;
       }
@@ -1134,6 +1324,257 @@ function smoothCoastlineOnly(loop, usage, iterations = 2) {
   return result;
 }
 
+// ============================================================
+// БЕРЕГОВАЯ ЛИНИЯ КАК ЖЁСТКОЕ ОГРАНИЧЕНИЕ
+// Исходные полигоны суши превращаем в «кольца» (сегменты + длины дуг),
+// затем береговые участки контуров провинций ЗАМЕНЯЕМ исходной геометрией
+// берега вместо сглаживания. Провинции больше не «уплывают» от контура.
+// ============================================================
+
+// Кольца берегов из полигонов суши.
+function collectCoastlineRings(landPolygons) {
+  const rings = [];
+
+  for (const vertices of landPolygons) {
+    if (!vertices || vertices.length < 3) continue;
+
+    const segs = [];
+    let total = 0;
+
+    for (let i = 0; i < vertices.length; i++) {
+      const a = vertices[i];
+      const b = vertices[(i + 1) % vertices.length];
+      const len = Math.hypot(b.x - a.x, b.y - a.y);
+      segs.push({ a, b, len, start: total });
+      total += len;
+    }
+
+    if (total > 0) rings.push({ vertices, segs, total });
+  }
+
+  return rings;
+}
+
+// Ближайшая точка на береговой линии (сегмент + параметр).
+function projectPointToCoastline(x, y, rings) {
+  let best = null;
+
+  for (let ri = 0; ri < rings.length; ri++) {
+    const ring = rings[ri];
+
+    for (let si = 0; si < ring.segs.length; si++) {
+      const seg = ring.segs[si];
+      const dx = seg.b.x - seg.a.x;
+      const dy = seg.b.y - seg.a.y;
+      const lenSq = dx * dx + dy * dy;
+
+      let t = 0;
+      if (lenSq > 0) {
+        t = ((x - seg.a.x) * dx + (y - seg.a.y) * dy) / lenSq;
+        t = Math.max(0, Math.min(1, t));
+      }
+
+      const px = seg.a.x + dx * t;
+      const py = seg.a.y + dy * t;
+      const d = Math.hypot(x - px, y - py);
+
+      if (!best || d < best.dist) {
+        best = { dist: d, ringIndex: ri, segIndex: si, t, x: px, y: py };
+      }
+    }
+  }
+
+  return best;
+}
+
+// Обход берегового кольца от projA до projB в заданном направлении.
+// Возвращает точки пути, включая проекции концов и все исходные вершины между ними.
+function walkCoastline(rings, projA, projB, forward) {
+  const ring = rings[projA.ringIndex];
+  const L = ring.total;
+
+  const posA = ring.segs[projA.segIndex].start +
+               ring.segs[projA.segIndex].len * projA.t;
+  const posB = ring.segs[projB.segIndex].start +
+               ring.segs[projB.segIndex].len * projB.t;
+
+  const walkLen = forward
+    ? (posB - posA + L) % L
+    : (posA - posB + L) % L;
+
+  const pts = [{ x: projA.x, y: projA.y }];
+  const EPS = 1e-9;
+
+  if (walkLen < EPS) {
+    pts.push({ x: projB.x, y: projB.y });
+    return pts;
+  }
+
+  if (forward) {
+    const endPos = posA + walkLen;
+    let i = (projA.segIndex + 1) % ring.vertices.length;
+
+    for (let guard = 0; guard <= ring.vertices.length; guard++) {
+      const seg = ring.segs[i];
+      if (seg.start >= endPos - EPS) break;
+      pts.push({ x: ring.vertices[i].x, y: ring.vertices[i].y });
+      i = (i + 1) % ring.vertices.length;
+    }
+  } else {
+    const endPos = posA - walkLen;
+    let i = projA.segIndex;
+
+    for (let guard = 0; guard <= ring.vertices.length; guard++) {
+      const seg = ring.segs[i];
+      if (seg.start <= endPos + EPS) break;
+      pts.push({ x: ring.vertices[i].x, y: ring.vertices[i].y });
+      i = (i - 1 + ring.vertices.length) % ring.vertices.length;
+    }
+  }
+
+  pts.push({ x: projB.x, y: projB.y });
+  return pts;
+}
+
+function pathLength(pts) {
+  let len = 0;
+  for (let i = 1; i < pts.length; i++) {
+    len += Math.hypot(pts[i].x - pts[i - 1].x, pts[i].y - pts[i - 1].y);
+  }
+  return len;
+}
+
+function pathMidpoint(pts) {
+  let sx = 0, sy = 0;
+  for (const p of pts) { sx += p.x; sy += p.y; }
+  return { x: sx / pts.length, y: sy / pts.length };
+}
+
+// Заменяем береговые участки контура на исходную геометрию берега.
+// Общие (с соседними провинциями) вершины — якоря, они не двигаются.
+// Береговой run между якорями заменяется фрагментом исходного кольца;
+// если якоря не проецируются на берег — точки run лишь «прилипают» к нему.
+function replaceCoastRuns(loop, usage, rings, snapThreshold = 0.03) {
+  if (!rings.length || !loop.length) return loop;
+
+  const key = p => `${p.x.toFixed(6)},${p.y.toFixed(6)}`;
+  const isShared = p => (usage.get(key(p)) || 0) >= 2;
+
+  const n = loop.length;
+  const sharedFlags = loop.map(isShared);
+
+  // Остров без общих вершин: весь контур — берег. Снапим все точки.
+  if (!sharedFlags.some(Boolean)) {
+    const snapped = loop.map(p => {
+      const pr = projectPointToCoastline(p.x, p.y, rings);
+      return (pr && pr.dist <= snapThreshold)
+        ? { x: pr.x, y: pr.y }
+        : { x: p.x, y: p.y };
+    });
+    const simplified = simplifyPolygon(snapped, 1e-5);
+    return simplified.length >= 3 ? simplified : loop;
+  }
+
+  const coastRunReplacement = (runPts) => {
+    const a = runPts[0];
+    const b = runPts[runPts.length - 1];
+
+    // Вырожденный run (якорь сам на себя) — только снаппинг.
+    const sameAnchor = Math.hypot(a.x - b.x, a.y - b.y) < 1e-9;
+
+    const projA = projectPointToCoastline(a.x, a.y, rings);
+    const projB = sameAnchor ? projA
+                             : projectPointToCoastline(b.x, b.y, rings);
+
+    if (!sameAnchor && projA && projB &&
+        projA.ringIndex === projB.ringIndex &&
+        projA.dist <= snapThreshold &&
+        projB.dist <= snapThreshold) {
+
+      const mid = pathMidpoint(runPts);
+      const runLen = pathLength(runPts);
+      const maxWalk = Math.max(runLen * 3, 0.05);
+
+      const fwd = walkCoastline(rings, projA, projB, true);
+      const bwd = walkCoastline(rings, projA, projB, false);
+      const fwdLen = pathLength(fwd);
+      const bwdLen = pathLength(bwd);
+
+      let chosen = null;
+      if (fwdLen <= maxWalk && bwdLen <= maxWalk) {
+        // Оба варианта валидны — берём тот, чья середина ближе к исходному run.
+        const fwdD = Math.hypot(pathMidpoint(fwd).x - mid.x, pathMidpoint(fwd).y - mid.y);
+        const bwdD = Math.hypot(pathMidpoint(bwd).x - mid.x, pathMidpoint(bwd).y - mid.y);
+        chosen = fwdD <= bwdD ? fwd : bwd;
+      } else if (fwdLen <= maxWalk) {
+        chosen = fwd;
+      } else if (bwdLen <= maxWalk) {
+        chosen = bwd;
+      }
+
+      if (chosen) return chosen;
+    }
+
+    // Fallback: точки run прилипают к ближайшей точке берега (без сглаживания).
+    return runPts.map(p => {
+      const pr = projectPointToCoastline(p.x, p.y, rings);
+      return (pr && pr.dist <= snapThreshold)
+        ? { x: pr.x, y: pr.y }
+        : { x: p.x, y: p.y };
+    });
+  };
+
+  const startIdx = sharedFlags.indexOf(true);
+  const ordered = [];
+  for (let i = 0; i < n; i++) ordered.push(loop[(startIdx + i) % n]);
+
+  const result = [];
+  let i = 0;
+  const guard = ordered.length + 1;
+  let steps = 0;
+
+  while (i < ordered.length && steps < guard) {
+    steps++;
+
+    const anchorStart = ordered[i];
+    result.push(anchorStart);
+
+    const run = [anchorStart];
+    let j = i + 1;
+    while (j <= ordered.length && !isShared(ordered[j % ordered.length])) {
+      run.push(ordered[j % ordered.length]);
+      j++;
+    }
+    const anchorEnd = ordered[j % ordered.length];
+    run.push(anchorEnd);
+
+    if (run.length > 2) {
+      const replacement = coastRunReplacement(run);
+      for (let k = 1; k < replacement.length - 1; k++) {
+        result.push(replacement[k]);
+      }
+    }
+
+    i = j;
+  }
+
+  if (steps >= guard) {
+    console.warn("⚠️ replaceCoastRuns: guard достигнут, контур возвращён как есть.");
+    return loop;
+  }
+
+  // Убрать подряд идущие дубликаты.
+  const cleaned = [];
+  for (const p of result) {
+    const last = cleaned[cleaned.length - 1];
+    if (!last || Math.hypot(last.x - p.x, last.y - p.y) > 1e-9) {
+      cleaned.push(p);
+    }
+  }
+
+  return cleaned.length >= 3 ? cleaned : loop;
+}
+
 // ИЗМЕНЕНО: строим внешний контур объединения клеток кластера.
 function buildClusterBoundary(clusterCells, gridSize) {
   if (!clusterCells.length) return [];
@@ -1230,14 +1671,22 @@ function buildClusterBoundary(clusterCells, gridSize) {
 // При конфликте с городом — сдвигаем на 1e-6.
 // ============================================================
 function materializeProvinceVertices(newProvinces, tol = 5e-4) {
-  // Индекс существующих точек для быстрого поиска «уже есть такая же».
-  // Используем список сегментов: каждый элемент — { p, key }.
-  // Для допуска — линейный поиск по уже материализованным вершинам.
-  const existingVertexPoints = []; // { pt, x, y }
+  // Точки рек не переиспользуем — иначе перетаскивание вершины
+  // провинции деформировало бы реку.
+  const riverPointIds = new Set();
+  for (const road of roads) {
+    if (road.type !== "river") continue;
+    for (const id of road.pointIds) riverPointIds.add(id);
+  }
 
-  // 1. Собираем существующие isVertex-точки (если повторная генерация).
+  // ИЗМЕНЕНО: переиспользуем ЛЮБЫЕ подходящие существующие точки
+  // (в т.ч. точки исходной береговой линии) — границы провинций
+  // буквально натянуты на уже имеющуюся геометрию, а не дублируют её.
+  const reusablePoints = [];
   for (const p of points) {
-    if (p.isVertex) existingVertexPoints.push({ pt: p, x: p.x, y: p.y });
+    if (p.isCity) continue;
+    if (riverPointIds.has(p.id)) continue;
+    reusablePoints.push({ pt: p, x: p.x, y: p.y });
   }
 
   // 2. Для каждой новой провинции — материализуем вершины.
@@ -1250,9 +1699,9 @@ function materializeProvinceVertices(newProvinces, tol = 5e-4) {
     for (let i = 0; i < verts.length; i++) {
       const v = verts[i];
 
-      // 2a. Есть ли уже isVertex-точка в пределах допуска?
+      // 2a. Есть ли уже подходящая точка в пределах допуска?
       let found = null;
-      for (const ev of existingVertexPoints) {
+      for (const ev of reusablePoints) {
         if (Math.hypot(ev.x - v.x, ev.y - v.y) < tol) {
           found = ev.pt;
           break;
@@ -1276,12 +1725,15 @@ function materializeProvinceVertices(newProvinces, tol = 5e-4) {
         pt.isVertex = true;
         pt.provinceIds = [];
 
-        existingVertexPoints.push({ pt, x: px, y: py });
+        reusablePoints.push({ pt, x: px, y: py });
         found = pt;
       }
 
-      // 2c. Записать провинцию в provinceIds (если ещё нет).
-      if (!found.provinceIds) found.provinceIds = [];
+      // 2c. Пометить как вершину и записать провинцию в provinceIds.
+      if (!found.isVertex) {
+        found.isVertex = true;
+        if (!found.provinceIds) found.provinceIds = [];
+      }
       if (!found.provinceIds.includes(prov.id)) {
         found.provinceIds.push(prov.id);
       }
@@ -1294,8 +1746,28 @@ function materializeProvinceVertices(newProvinces, tol = 5e-4) {
   }
 }
 
+// Пересечение отрезков ab и cd (для отчёта о пересечениях границ с реками).
+function segmentsIntersect(a, b, c, d) {
+  const cross = (o, p, q) =>
+    (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x);
+
+  const d1 = cross(c, d, a);
+  const d2 = cross(c, d, b);
+  const d3 = cross(a, b, c);
+  const d4 = cross(a, b, d);
+
+  return ((d1 > 0 && d2 < 0) || (d1 < 0 && d2 > 0)) &&
+         ((d3 > 0 && d4 < 0) || (d3 < 0 && d4 > 0));
+}
+
 // ============================================================
 // ИЗМЕНЕНО: главная функция автогенерации.
+// Генерация ограничена существующей геометрией:
+//  - суша растеризуется по нарисованным полигонам;
+//  - внутренние водные полигоны (озёра/заливы) вырезаются;
+//  - береговые участков контуров = исходная геометрия берега;
+//  - реки — барьеры: штраф в назначении клеток + зап перетекания;
+//  - seed управляет выбором центров для повторной генерации.
 // ============================================================
 function autoGenerateProvinces() {
   const input = document.getElementById("provinceCountInput");
@@ -1309,6 +1781,18 @@ function autoGenerateProvinces() {
     return;
   }
 
+  // Seed: пусто/0 — случайный (подставится в поле для повтора).
+  const seedInput = document.getElementById("provinceSeedInput");
+  let seed = Number.parseInt(seedInput.value, 10);
+  if (!Number.isInteger(seed) || seed <= 0) {
+    seed = (Math.random() * 1e9) | 0;
+  }
+  seedInput.value = seed;
+  const rng = makeRandom(seed);
+
+  const optSnap = document.getElementById("optSnapCoast").checked;
+  const optRivers = document.getElementById("optRespectRivers").checked;
+
   const landPolygons = getLandPolygons();
 
   if (!landPolygons.length) {
@@ -1316,34 +1800,47 @@ function autoGenerateProvinces() {
     return;
   }
 
-  const cells = rasterizeLand(AUTO_PROVINCE_GRID_SIZE, landPolygons);
+  // Кольца берега строим ДО удаления исходных полигонов суши.
+  const coastlineRings = optSnap ? collectCoastlineRings(landPolygons) : [];
+  const waterExclusions = getWaterExclusionPolygons();
+
+  const cells = rasterizeLand(AUTO_PROVINCE_GRID_SIZE, landPolygons, waterExclusions);
 
   if (!cells.length) {
     alert("❌ Не удалось растеризовать сушу. Проверь контуры провинций.");
     return;
   }
 
-  const seeds = chooseProvinceSeeds(cells, requestedCount);
+  const riverSegments = optRivers ? getRiverSegments() : [];
+  const riverAdjacency = optRivers
+    ? computeRiverAdjacency(AUTO_PROVINCE_GRID_SIZE, riverSegments)
+    : new Set();
+
+  const seeds = chooseProvinceSeeds(cells, requestedCount, rng);
   if (!seeds.length) {
     alert("❌ Не удалось выбрать центры провинций.");
     return;
   }
 
-    assignCellsToSeeds(cells, seeds);
+  assignCellsToSeeds(cells, seeds, AUTO_PROVINCE_GRID_SIZE, riverAdjacency);
 
-  // ИЗМЕНЕНО: Б) сглаживание кластеров на уровне сетки — до построения контуров.
-  smoothClusters(cells, AUTO_PROVINCE_GRID_SIZE, seeds.length, 1);
+  smoothClusters(cells, AUTO_PROVINCE_GRID_SIZE, seeds.length, 1, 3, riverAdjacency);
+
+  // ИЗМЕНЕНО: вторая волна назначения + сглаживания — закрепляет речные
+  // барьеры и убирает остаточные пересечения границ с реками.
+  assignCellsToSeeds(cells, seeds, AUTO_PROVINCE_GRID_SIZE, riverAdjacency);
+
+  smoothClusters(cells, AUTO_PROVINCE_GRID_SIZE, seeds.length, 1, 3, riverAdjacency);
 
   const clusters = Array.from({ length: seeds.length }, () => []);
   for (const cell of cells) clusters[cell.cluster].push(cell);
 
-  // ИЗМЕНЕНО: контуры строим чисто по сетке.
+  // Контуры строим по сетке.
   const rawLoops = clusters.map(cluster => {
     const boundary = buildClusterBoundary(cluster, AUTO_PROVINCE_GRID_SIZE);
     return boundary.length >= 3 ? boundary : null;
   });
 
-  // ИЗМЕНЕНО: карта использования вершин нужна ДО сглаживания.
   const vertexUsage = buildVertexUsageMap(rawLoops);
 
   const generatedProvinces = [];
@@ -1351,13 +1848,19 @@ function autoGenerateProvinces() {
   for (const loop of rawLoops) {
     if (!loop) continue;
 
-    const smoothed = smoothCoastlineOnly(loop, vertexUsage, 2);
-    if (smoothed.length < 3) continue;
+    // Берега — заменой исходной геометрией (или старым сглаживанием,
+    // если привязка отключена). Никакого «уплывания» береговой линии.
+    const contour = optSnap && coastlineRings.length
+      ? replaceCoastRuns(loop, vertexUsage, coastlineRings,
+                         3 / AUTO_PROVINCE_GRID_SIZE)
+      : smoothCoastlineOnly(loop, vertexUsage, 2);
+
+    if (contour.length < 3) continue;
 
     generatedProvinces.push({
       id: nextProvinceId++,
       type: "land",
-      vertices: smoothed,
+      vertices: contour,
       properties: {
         name: `AutoProvince_${generatedProvinces.length + 1}`,
         owner: 0,
@@ -1373,11 +1876,28 @@ function autoGenerateProvinces() {
 
   pushUndo();
 
-  // ИЗМЕНЕНО: заменяем только land, water сохраняем.
+  // Заменяем только land, water сохраняем.
   provinces = provinces.filter(prov => prov.type !== "land");
   provinces.push(...generatedProvinces);
 
-  // ИЗМЕНЕНО: материализация вершин — теперь их можно тянуть.
+  // Удаляем вершинные точки старых (в т.ч. ранее сгенерированных)
+  // land-провинций — они больше ничем не используются.
+  // Города и точки дорог/рек сохраняются.
+  {
+    const usedPointIds = new Set();
+    for (const road of roads) {
+      for (const id of road.pointIds) usedPointIds.add(id);
+    }
+    for (const prov of provinces) {
+      if (Array.isArray(prov.vertexIds)) {
+        for (const id of prov.vertexIds) usedPointIds.add(id);
+      }
+    }
+    points = points.filter(p =>
+      !p.isVertex || usedPointIds.has(p.id) || p.isCity);
+  }
+
+  // Материализация: переиспользует существующие точки берега.
   materializeProvinceVertices(generatedProvinces);
 
   selectedObjects = [];
@@ -1390,11 +1910,34 @@ function autoGenerateProvinces() {
   document.getElementById("jsonArea").value =
     JSON.stringify(getWorldData(), null, 2);
 
+  // Отчёт: сколько раз границы всё же пересекают реки.
+  let riverCrossings = 0;
+  if (riverSegments.length) {
+    for (const prov of generatedProvinces) {
+      const vs = prov.vertices || [];
+      for (let i = 0; i < vs.length; i++) {
+        const a = vs[i];
+        const b = vs[(i + 1) % vs.length];
+        for (const seg of riverSegments) {
+          if (segmentsIntersect(a, b,
+              { x: seg.x1, y: seg.y1 }, { x: seg.x2, y: seg.y2 })) {
+            riverCrossings++;
+          }
+        }
+      }
+    }
+  }
+
   alert(
     `✅ Автогенерация завершена.\n` +
     `Создано провинций: ${generatedProvinces.length}\n` +
     `Обработано клеток суши: ${cells.length}\n` +
-    `Материализовано вершин: ${points.filter(p => p.isVertex).length}`
+    `Seed: ${seed}\n` +
+    (riverSegments.length
+      ? (riverCrossings === 0
+          ? `Реки: пересечений границ с реками нет.`
+          : `⚠️ Границы пересекают реки в ${riverCrossings} точках — попробуй другой seed.`)
+      : `Рек на карте нет.`)
   );
 }
 
@@ -3275,7 +3818,7 @@ console.log("🔍 Найти сирот — точки без привязки �
 console.log("🟡 Провинции яркие, с тенью");
 console.log("🗑️ Delete — удаляет выбранный объект");
 console.log("🔗 Слить границы — объединяет близкие вершины разных провинций");
-console.log("🗺️ Автогенерация — создаёт провинции по сетке Вороного");
+console.log("🗺️ Автогенерация — провинции по сетке Вороного внутри контуров суши; берега повторяют исходную геометрию, реки — барьеры (seed в поле Seed)");
 console.log("💧 Залить водой — создаёт одну водную провинцию на всю карту");
 console.log("🌊 Тип провинции: Сделать морем / Сделать сушей");
 console.log("⌨️ Горячие клавиши: 1-8 режимы, V — вершины");
