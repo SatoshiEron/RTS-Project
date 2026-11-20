@@ -114,6 +114,10 @@
     }
     #minimap {
       display: block;
+      /* ВАЖНО: общее правило `canvas` задаёт 1280×720 — переопределяем,
+         иначе миникарта растягивается на весь холст. */
+      width: 180px;
+      height: 180px;
       border-radius: 4px;
       cursor: crosshair;
     }
