@@ -1321,6 +1321,19 @@ export default class Renderer {
   // ТАКТИЧЕСКИЕ ИКОНКИ ЮНИТОВ
   // ============================================================
 
+  // Вспомогательный: скруглённый прямоугольник (плашка юнита).
+  roundRectPath(ctx, x, y, w, h, rad) {
+    ctx.beginPath();
+    ctx.moveTo(x + rad, y);
+    ctx.arcTo(x + w, y, x + w, y + h, rad);
+    ctx.arcTo(x + w, y + h, x, y + h, rad);
+    ctx.arcTo(x, y + h, x, y, rad);
+    ctx.arcTo(x, y, x + w, y, rad);
+    ctx.closePath();
+  }
+
+  // ИЗМЕНЕНО: юнит — плашка-«фишка» со скруглёнными углами.
+  // Цвета фракций совпадают с цветами территорий на карте.
   drawUnit(unit) {
     const ctx = this.ctx;
 
@@ -1332,85 +1345,69 @@ export default class Renderer {
       this.game.selectedUnit &&
       this.game.selectedUnit.id === unit.id;
 
-    const color = isPlayer ? "#00ff88" : "#ff5368";
+    const color = isPlayer ? "#4a9eff" : "#ff5050";
     const fillColor = isPlayer
-      ? "rgba(0, 255, 136, 0.22)"
-      : "rgba(255, 83, 104, 0.22)";
+      ? "rgba(74, 158, 255, 0.16)"
+      : "rgba(255, 80, 80, 0.16)";
 
-    const radius = 9;
     const type = this.getUnitTypeKey(unit);
+
+    // Размер плашки отражает «вес» класса.
+    let radius = 9.5;
+    if (type === "tank") radius = 10.5;
+    else if (type === "militia") radius = 8.5;
 
     ctx.save();
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    ctx.beginPath();
-    ctx.moveTo(s.x, s.y - radius);
-    ctx.lineTo(s.x + radius, s.y);
-    ctx.lineTo(s.x, s.y + radius);
-    ctx.lineTo(s.x - radius, s.y);
-    ctx.closePath();
-
-    ctx.fillStyle = fillColor;
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-
-    ctx.shadowColor = color;
-    ctx.shadowBlur = isSelected ? 8 : 0;
+    // Плашка: тёмная подложка + полупрозрачный тинт фракции + обводка.
+    this.roundRectPath(ctx, s.x - radius, s.y - radius, radius * 2, radius * 2, 4);
+    ctx.fillStyle = "rgba(8, 12, 22, 0.85)";
     ctx.fill();
-    ctx.stroke();
-    ctx.shadowBlur = 0;
-
-    ctx.beginPath();
+    ctx.fillStyle = fillColor;
+    ctx.fill();
     ctx.strokeStyle = color;
-    ctx.lineWidth = 1.5;
-
-    if (isPlayer) {
-      ctx.moveTo(s.x, s.y - 5);
-      ctx.lineTo(s.x, s.y - 1.4);
-
-      ctx.moveTo(s.x - 2, s.y - 3.2);
-      ctx.lineTo(s.x + 2, s.y - 3.2);
-    } else {
-      ctx.moveTo(s.x - 2, s.y - 5);
-      ctx.lineTo(s.x + 2, s.y - 1.4);
-
-      ctx.moveTo(s.x + 2, s.y - 5);
-      ctx.lineTo(s.x - 2, s.y - 1.4);
-    }
-
+    ctx.lineWidth = 2;
     ctx.stroke();
 
-    this.drawUnitTypeMark(ctx, s.x, s.y + 3.1, type, color);
+    // Символ типа по центру плашки.
+    this.drawUnitTypeMark(ctx, s.x, s.y, type, color);
 
+    // Выделение: аккуратное жёлтое кольцо без свечения.
     if (isSelected) {
       ctx.beginPath();
-      ctx.arc(s.x, s.y, 14, 0, Math.PI * 2);
-
-      ctx.strokeStyle = "#ffff00";
+      ctx.arc(s.x, s.y, radius + 4.5, 0, Math.PI * 2);
+      ctx.strokeStyle = "#ffe14a";
       ctx.lineWidth = 2;
-      ctx.shadowColor = "#ffff00";
-      ctx.shadowBlur = 8;
-
       ctx.stroke();
-      ctx.shadowBlur = 0;
     }
 
-    const barW = 20;
+    ctx.restore();
+
+    // HP-бар над плашкой.
+    const barW = 22;
     const barH = 3;
     const barX = s.x - barW / 2;
-    const barY = s.y - 16;
+    const barY = s.y - radius - 9;
 
     const maxHp = Math.max(1, Number(unit.maxHp) || 1);
     const hp = Math.max(0, Math.min(maxHp, Number(unit.hp) || 0));
     const hpRatio = hp / maxHp;
 
-    ctx.fillStyle = "#222222cc";
+    ctx.save();
+
+    ctx.fillStyle = "rgba(10, 10, 14, 0.8)";
     ctx.fillRect(barX, barY, barW, barH);
 
-    ctx.fillStyle = hpRatio > 0.5 ? "#00ff66" : "#ff4444";
+    // Три порога: зелёный / жёлтый / красный.
+    ctx.fillStyle =
+      hpRatio > 0.5 ? "#00dd66" :
+      hpRatio > 0.25 ? "#ffcc33" :
+      "#ff4444";
     ctx.fillRect(barX, barY, barW * hpRatio, barH);
 
+    // Состояние (только свои) — над HP-баром, без наложения.
     if (isPlayer) {
       let stateIcon = "●";
       let stateColor = "#8899bb";
@@ -1429,7 +1426,7 @@ export default class Renderer {
       ctx.font = "9px monospace";
       ctx.textAlign = "center";
       ctx.textBaseline = "bottom";
-      ctx.fillText(stateIcon, s.x, s.y - 20);
+      ctx.fillText(stateIcon, s.x, barY - 1.5);
     }
 
     ctx.restore();
@@ -1487,82 +1484,89 @@ getUnitTypeKey(unit) {
   return "unknown";
 }
 
-  // ИЗМЕНЕНО: иконки для новых типов формирований.
-drawUnitTypeMark(ctx, x, y, type, color) {
-  ctx.save();
+  // ИЗМЕНЕНО: крупные силуэты типов формирований (~9px, центр плашки).
+  // Единый штрих 1.5, округлые концы; танк/грузовик — с заливкой.
+  drawUnitTypeMark(ctx, x, y, type, color) {
+    ctx.save();
 
-  ctx.strokeStyle = color;
-  ctx.fillStyle = color;
-  ctx.lineWidth = 1.25;
-  ctx.lineCap = "round";
-  ctx.lineJoin = "round";
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
-  if (type === "militia") {
-    // Ополчение: три точки (толпа).
-    ctx.beginPath();
-    ctx.arc(x - 1.6, y + 0.6, 0.9, 0, Math.PI * 2);
-    ctx.arc(x, y + 0.6, 0.9, 0, Math.PI * 2);
-    ctx.arc(x + 1.6, y + 0.6, 0.9, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (type === "infantry") {
-    // Пехота: точка.
-    ctx.beginPath();
-    ctx.arc(x, y, 1.15, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (type === "motorized") {
-    // Моторизованная: шеврон (стрелка) + маленькие колёса.
-    ctx.beginPath();
-    ctx.moveTo(x - 2, y + 1);
-    ctx.lineTo(x, y - 1);
-    ctx.lineTo(x + 2, y + 1);
-    ctx.stroke();
+    if (type === "militia") {
+      // Ополчение: три штриха «колонна людей».
+      for (const dx of [-2.6, 0, 2.6]) {
+        ctx.beginPath();
+        ctx.moveTo(x + dx, y - 2.3);
+        ctx.lineTo(x + dx, y + 2.3);
+        ctx.stroke();
+      }
+    } else if (type === "infantry") {
+      // Пехота: направленный клин (треугольник).
+      ctx.beginPath();
+      ctx.moveTo(x, y - 2.6);
+      ctx.lineTo(x + 2.5, y + 1.9);
+      ctx.lineTo(x - 2.5, y + 1.9);
+      ctx.closePath();
+      ctx.fill();
+    } else if (type === "motorized") {
+      // Моторизованная: грузовик (кузов + кабина + колёса).
+      ctx.fillRect(x - 3.1, y - 1.8, 3.9, 2.4);
+      ctx.fillRect(x + 0.8, y - 1, 2.3, 1.6);
+      ctx.beginPath();
+      ctx.arc(x - 1.9, y + 1.4, 0.7, 0, Math.PI * 2);
+      ctx.arc(x + 1.9, y + 1.4, 0.7, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (type === "tank") {
+      // Бронетанковая: гусеница, башня, ствол.
+      this.roundRectPath(ctx, x - 3.6, y - 0.7, 7.2, 2.2, 1);
+      ctx.fill();
+      ctx.fillRect(x - 1.3, y - 2.7, 2.6, 2);
+      ctx.beginPath();
+      ctx.moveTo(x + 0.9, y - 1.8);
+      ctx.lineTo(x + 3.7, y - 2.6);
+      ctx.stroke();
+    } else if (type === "artillery") {
+      // Артиллерия: колесо + длинный ствол + станок.
+      ctx.beginPath();
+      ctx.arc(x - 1.5, y + 0.5, 1.25, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 0.7, y + 0.1);
+      ctx.lineTo(x + 3.5, y - 2.7);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x - 1.8, y + 1.4);
+      ctx.lineTo(x - 3.2, y + 2.7);
+      ctx.stroke();
+    } else if (type === "marines") {
+      // Морская пехота: якорь.
+      ctx.beginPath();
+      ctx.arc(x, y - 3.1, 0.6, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.moveTo(x, y - 2.5);
+      ctx.lineTo(x, y + 1.9);
+      ctx.moveTo(x - 1.6, y - 1.1);
+      ctx.lineTo(x + 1.6, y - 1.1);
+      ctx.moveTo(x - 2.1, y + 0.5);
+      ctx.quadraticCurveTo(x, y + 2.9, x + 2.1, y + 0.5);
+      ctx.stroke();
+    } else {
+      // Резервный маркер для ещё не классифицированных типов.
+      ctx.beginPath();
+      ctx.moveTo(x, y - 2.4);
+      ctx.lineTo(x + 2.4, y);
+      ctx.lineTo(x, y + 2.4);
+      ctx.lineTo(x - 2.4, y);
+      ctx.closePath();
+      ctx.stroke();
+    }
 
-    ctx.beginPath();
-    ctx.arc(x - 1.8, y + 1.4, 0.55, 0, Math.PI * 2);
-    ctx.arc(x + 1.8, y + 1.4, 0.55, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (type === "tank") {
-    // Танк: корпус, башня и короткий ствол.
-    ctx.fillRect(x - 2.1, y - 0.6, 4.2, 1.7);
-    ctx.fillRect(x - 0.7, y - 1.8, 1.4, 1.2);
-
-    ctx.beginPath();
-    ctx.moveTo(x + 0.2, y - 1.4);
-    ctx.lineTo(x + 2.2, y - 2.1);
-    ctx.stroke();
-  } else if (type === "artillery") {
-    // Артиллерия: опора и направленный ствол.
-    ctx.beginPath();
-    ctx.moveTo(x - 2.2, y + 1.1);
-    ctx.lineTo(x + 2.2, y + 1.1);
-
-    ctx.moveTo(x - 0.3, y + 0.7);
-    ctx.lineTo(x + 2.1, y - 1.2);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(x - 0.3, y + 0.7, 0.65, 0, Math.PI * 2);
-    ctx.fill();
-  } else if (type === "marines") {
-    // Морская пехота: якорь (упрощённый).
-    ctx.beginPath();
-    // Вертикальная линия.
-    ctx.moveTo(x, y - 1.8);
-    ctx.lineTo(x, y + 1.8);
-    // Перекладина.
-    ctx.moveTo(x - 1.4, y - 0.8);
-    ctx.lineTo(x + 1.4, y - 0.8);
-    // Крюк снизу.
-    ctx.moveTo(x - 1.4, y + 1.2);
-    ctx.quadraticCurveTo(x, y + 2.4, x + 1.4, y + 1.2);
-    ctx.stroke();
-  } else {
-    // Резервный маркер для ещё не классифицированных типов.
-    ctx.fillRect(x - 0.7, y - 0.7, 1.4, 1.4);
+    ctx.restore();
   }
-
-  ctx.restore();
-}
 
   drawUnitTarget() {
     const ctx = this.ctx;
