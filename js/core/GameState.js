@@ -67,16 +67,14 @@ export default class GameState {
     this.aiId = 2;
 
     // ===== ГИБРИДНАЯ ЭКОНОМИКА =====
+    // ИЗМЕНЕНО: единая казна фракции. Локальные бюджеты городов и политики
+    // fundingPolicy/treasuryShare упразднены — весь доход идёт в казну,
+    // все траты списываются из казны. Осталась только политика призыва.
     this.factionEconomy = {
       [this.playerId]: {
-        treasuryShare: 0.4,
-        fundingPolicy: 'self',
-        // ИЗМЕНЕНО: политика призыва по умолчанию.
         draftPolicy: 'city',
       },
       [this.aiId]: {
-        treasuryShare: 0.4,
-        fundingPolicy: 'self',
         draftPolicy: 'center',
       },
     };
@@ -1282,28 +1280,34 @@ export default class GameState {
     }
   }
 
-  getCityIncomeSplit(city) {
-    const income = this.getCityIncome(city);
-    const eco = this.getFactionEconomy(city.owner);
-    const share = eco ? eco.treasuryShare : 1.0;
+  // ИЗМЕНЕНО: прозрачная разбивка дохода города (для UI).
+  getCityIncomeBreakdown(city) {
+    const base = (city.level || 1) * 2;
+    const popBonus = Math.floor(city.population / 1000);
 
-    const treasuryIncome = Math.round(income * share);
-    const localIncome = income - treasuryIncome;
+    let mult = 1;
+    let provinceMod = '×1.0';
 
-    return { income, treasuryIncome, localIncome, share };
-  }
+    if (city.provinceId) {
+      const prov = this.provincesById.get(city.provinceId);
+      if (prov) {
+        if (prov.owner === city.owner) {
+          mult = 1.2;
+          provinceMod = '×1.2 (своя провинция)';
+        } else if (prov.owner !== 0 && prov.owner !== city.owner) {
+          mult = 0.8;
+          provinceMod = '×0.8 (чужая провинция)';
+        }
+      }
+    }
 
-  setTreasuryShare(factionId, share) {
-    const eco = this.getFactionEconomy(factionId);
-    if (!eco) return;
-    eco.treasuryShare = Math.max(0, Math.min(1, Number(share) || 0));
-  }
-
-  setFundingPolicy(factionId, policy) {
-    if (policy !== 'self' && policy !== 'center') return;
-    const eco = this.getFactionEconomy(factionId);
-    if (!eco) return;
-    eco.fundingPolicy = policy;
+    return {
+      base,
+      popBonus,
+      mult,
+      provinceMod,
+      income: this.getCityIncome(city),
+    };
   }
 
   getRecruitCostForType(city, type) {
@@ -1341,9 +1345,9 @@ export default class GameState {
     return (city.level || 1) < MAX_CITY_LEVEL;
   }
 
+  // ИЗМЕНЕНО: единая казна — бюджет действий всегда золото фракции.
   getActionBudgetSource(city) {
-    const eco = this.getFactionEconomy(city.owner);
-    return eco && eco.fundingPolicy === 'center' ? 'center' : 'city';
+    return 'center';
   }
 
   // ============================================================
@@ -1374,11 +1378,10 @@ export default class GameState {
   // ============================================================
   canAffordAction(city, action, type = 'infantry') {
     const cost = this.getActionCost(city, action, type);
-    const source = this.getActionBudgetSource(city);
 
-    const goldBudget = source === 'city'
-      ? (city.resources || 0)
-      : (city.owner === this.playerId ? this.playerGold : this.aiGold);
+    // Единая казна: всегда золото фракции.
+    const goldBudget =
+      city.owner === this.playerId ? this.playerGold : this.aiGold;
 
     const goldOk = goldBudget >= (cost.gold || 0);
 
@@ -1394,7 +1397,7 @@ export default class GameState {
       ok: goldOk && manpowerOk,
       cost: cost.gold,
       budget: goldBudget,
-      source,
+      source: 'center',
       goldOk, manpowerOk,
       manpowerNeed: cost.manpower,
       manpowerPlan,
@@ -1405,19 +1408,16 @@ export default class GameState {
     const check = this.canAffordAction(city, action, type);
     if (!check.ok) return { ok: false, ...check };
 
-    const { cost, source } = check;
+    const { cost } = check;
 
-    if (source === 'city') {
-      city.resources = (city.resources || 0) - cost;
-    } else {
-      if (city.owner === this.playerId) {
-        this.playerGold -= cost;
-      } else if (city.owner === this.aiId) {
-        this.aiGold -= cost;
-      }
+    // Единая казна: списание только с золота фракции.
+    if (city.owner === this.playerId) {
+      this.playerGold -= cost;
+    } else if (city.owner === this.aiId) {
+      this.aiGold -= cost;
     }
 
-    return { ok: true, cost, source, budget: check.budget - cost };
+    return { ok: true, cost, source: 'center', budget: check.budget - cost };
   }
 
   canAffordResources(factionId, costs) {
@@ -1579,8 +1579,7 @@ export default class GameState {
 
     for (const city of this.cities) {
       if (city.owner === ownerId) {
-        const split = this.getCityIncomeSplit(city);
-        income += split.treasuryIncome;
+        income += this.getCityIncome(city);
       }
     }
 
@@ -1613,19 +1612,18 @@ export default class GameState {
       }
     }
 
-    // ===== 1. ГОРОДСКОЙ ДОХОД → РАСПРЕДЕЛЕНИЕ =====
+    // ===== 1. ГОРОДСКОЙ ДОХОД → КАЗНА ФРАКЦИИ =====
+    // ИЗМЕНЕНО: единая казна — весь доход города целиком.
     for (const city of this.cities) {
       if (city.owner === 0) continue;
 
-      const { treasuryIncome, localIncome } = this.getCityIncomeSplit(city);
-
-      city.resources = (city.resources || 0) + localIncome;
+      const income = this.getCityIncome(city);
 
       if (city.owner === this.playerId) {
-        this.playerGold += treasuryIncome;
-        this.goldPerTurn += treasuryIncome;
+        this.playerGold += income;
+        this.goldPerTurn += income;
       } else if (city.owner === this.aiId) {
-        this.aiGold += treasuryIncome;
+        this.aiGold += income;
       }
 
       const res = this.getCityResourceProduction(city);

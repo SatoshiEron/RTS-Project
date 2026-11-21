@@ -94,11 +94,16 @@ export default class CityPanel {
       ? this.game.getCityIncome(city)
       : city.income || 10;
 
-    const split = this.game.getCityIncomeSplit
-      ? this.game.getCityIncomeSplit(city)
-      : { income, treasuryIncome: income, localIncome: 0, share: 1 };
+    // ИЗМЕНЕНО: единая казна + прозрачная разбивка дохода.
+    const breakdown = this.game.getCityIncomeBreakdown
+      ? this.game.getCityIncomeBreakdown(city)
+      : { income, base: 0, popBonus: 0, provinceMod: '' };
 
-    const localBudget = Math.floor(city.resources || 0);
+    const incomeTitle =
+      `База: ${breakdown.base} (уровень ${level} × 2)\n` +
+      `Население: +${breakdown.popBonus}\n` +
+      `Провинция: ${breakdown.provinceMod}\n` +
+      `Итого: +${income}/ход — вся казна фракции`;
 
     const hp = Math.floor(city.hp || 500);
     const maxHp = city.maxHp || 500;
@@ -127,12 +132,10 @@ export default class CityPanel {
       ? this.game.getAvailableUnitTypes(city)
       : ['infantry'];
 
-    const source = this.game.getActionBudgetSource
-      ? this.game.getActionBudgetSource(city)
-      : 'city';
+    // ИЗМЕНЕНО: единая казна — оплата всегда из неё.
+    const source = 'center';
 
-    const budgetLabel = (src) =>
-      src === 'city' ? '🏙️ город' : '🏛️ казна';
+    const budgetLabel = (src) => '🏛️ казна';
 
     // ИЗМЕНЕНО (Шаг 2): кнопки найма с ценой в людях.
     const recruitButtons = Object.keys(UNIT_TYPES).map(t => {
@@ -252,24 +255,9 @@ export default class CityPanel {
           <span class="value">${manpower} / ${manpowerMax}</span>
         </div>
 
-        <div class="city-stat">
-          <span class="label">💰 Доход</span>
-          <span class="value">+${split.income}/ход</span>
-        </div>
-
-        <div class="city-stat">
-          <span class="label">🏛️ В казну</span>
-          <span class="value">+${split.treasuryIncome} (${Math.round(split.share * 100)}%)</span>
-        </div>
-
-        <div class="city-stat">
-          <span class="label">🏙️ Остаётся городу</span>
-          <span class="value">+${split.localIncome}</span>
-        </div>
-
-        <div class="city-stat">
-          <span class="label">💵 Бюджет города</span>
-          <span class="value">${localBudget}💰</span>
+        <div class="city-stat" title="${incomeTitle}">
+          <span class="label">💰 Доход в казну</span>
+          <span class="value">+${income}/ход</span>
         </div>
 
         <div class="city-stat">
@@ -445,34 +433,18 @@ export default class CityPanel {
 
     const cost = result.cost || 0;
     const budget = result.budget || 0;
-    const source = result.source || "city";
-    const sourceName = source === "city" ? "бюджет города" : "казна фракции";
 
     const lines = [
       `🏙️ Город: ${city.name}`,
       `⚔️ Действие: ${actionName}`,
       `💰 Стоимость: ${cost}`,
-      `💵 Доступно (${sourceName}): ${Math.floor(budget)}`,
+      `💵 В казне: ${Math.floor(budget)}`,
     ];
 
-    const buttons = [];
-
-    if (source === "city" && city.owner === this.game.playerId) {
-      const centerBudget = this.game.playerGold;
-      buttons.push({
-        label: `🏛️ Оплатить из казны (${Math.floor(centerBudget)}💰)`,
-        onClick: () => {
-          this.game.setFundingPolicy(this.game.playerId, "center");
-          this.render(city);
-          this.showNotification(`🏛️ Финансирование переключено на казну.`, []);
-        },
-      });
-    }
-
-    buttons.push({
+    const buttons = [{
       label: "✖️ Отложить",
       onClick: () => {},
-    });
+    }];
 
     this.showNotification(lines.join("<br>"), buttons);
   }

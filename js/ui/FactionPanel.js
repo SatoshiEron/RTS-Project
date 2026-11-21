@@ -98,17 +98,12 @@ export default class FactionPanel {
     }
 
     // ---- Считаем суммарные показатели ----
+    // ИЗМЕНЕНО: единая казна — весь доход городов целиком.
     let totalCityIncome = 0;
-    let totalTreasuryFromCities = 0;
-    let totalLocalFromCities = 0;
 
     for (const city of game.cities) {
       if (city.owner !== pid) continue;
-
-      const split = game.getCityIncomeSplit(city);
-      totalCityIncome += split.income;
-      totalTreasuryFromCities += split.treasuryIncome;
-      totalLocalFromCities += split.localIncome;
+      totalCityIncome += game.getCityIncome(city);
     }
 
     // Доход провинций.
@@ -125,9 +120,7 @@ export default class FactionPanel {
     ).length;
 
     // Чистый доход казны.
-    const netTreasury = totalTreasuryFromCities + provinceIncome - upkeep;
-
-    const sharePercent = Math.round(eco.treasuryShare * 100);
+    const netTreasury = totalCityIncome + provinceIncome - upkeep;
 
     // ИЗМЕНЕНО: резерв людей фракции.
     const mp = game.getFactionManpower
@@ -155,18 +148,8 @@ export default class FactionPanel {
         </div>
 
         <div class="faction-stat">
-          <span class="label">📊 Доход городов (всего)</span>
-          <span class="value">+${totalCityIncome}💰</span>
-        </div>
-
-        <div class="faction-stat">
-          <span class="label">🏛️ В казну от городов</span>
-          <span class="value faction-positive">+${totalTreasuryFromCities}💰</span>
-        </div>
-
-        <div class="faction-stat">
-          <span class="label">🏙️ Остаётся в городах</span>
-          <span class="value faction-local">+${totalLocalFromCities}💰</span>
+          <span class="label">🏙️ Доход городов</span>
+          <span class="value faction-positive">+${totalCityIncome}💰</span>
         </div>
 
         <div class="faction-stat">
@@ -186,43 +169,8 @@ export default class FactionPanel {
           </span>
         </div>
 
-        <div class="faction-slider-block">
-          <div class="faction-slider-label">
-            <span>🎚️ Отчисления в казну</span>
-            <span id="factionShareValue">${sharePercent}%</span>
-          </div>
-          <input
-            type="range"
-            id="factionShareSlider"
-            min="0"
-            max="100"
-            step="1"
-            value="${sharePercent}"
-          />
-          <div class="faction-slider-hint">
-            🏛️ В казну: <b>${totalTreasuryFromCities}</b>💰 &nbsp;|&nbsp;
-            🏙️ Городам: <b>${totalLocalFromCities}</b>💰
-          </div>
-        </div>
-
-        <div class="faction-policy-block">
-          <div class="faction-slider-label">
-            <span>💳 Кто платит за действия</span>
-          </div>
-          <div class="faction-policy-toggle">
-            <button
-              class="policy-btn ${eco.fundingPolicy === "self" ? "active" : ""}"
-              data-policy="self"
-            >
-              🏙️ Город платит сам
-            </button>
-            <button
-              class="policy-btn ${eco.fundingPolicy === "center" ? "active" : ""}"
-              data-policy="center"
-            >
-              🏛️ Центр платит
-            </button>
-          </div>
+        <div class="faction-slider-hint" style="margin-top:4px;">
+          🏛️ Единая казна: весь доход идёт в общую казну, все траты — из неё.
         </div>
 
         <!-- ИЗМЕНЕНО: блок призыва -->
@@ -282,74 +230,6 @@ export default class FactionPanel {
   // ОБРАБОТЧИКИ
   // ============================================================
   _bindControls() {
-    const slider = this.content.querySelector("#factionShareSlider");
-    const sliderValue = this.content.querySelector("#factionShareValue");
-    const sliderHint = this.content.querySelector(".faction-slider-hint");
-
-    if (slider) {
-      // ИЗМЕНЕНО: ползунок меняет только будущие начисления,
-      // уже накопленное не трогаем.
-      slider.addEventListener("input", () => {
-        const percent = Number(slider.value);
-        if (sliderValue) sliderValue.textContent = `${percent}%`;
-
-        // Мгновенный пересчёт подсказки.
-        if (sliderHint) {
-          const game = this.game;
-          const pid = game.playerId;
-
-          let treasury = 0;
-          let local = 0;
-
-          for (const city of game.cities) {
-            if (city.owner !== pid) continue;
-
-            const income = game.getCityIncome(city);
-            const t = Math.round(income * (percent / 100));
-            const l = income - t;
-
-            treasury += t;
-            local += l;
-          }
-
-          sliderHint.innerHTML =
-            `🏛️ В казну: <b>${treasury}</b>💰 &nbsp;|&nbsp; ` +
-            `🏙️ Городам: <b>${local}</b>💰`;
-        }
-      });
-
-                  // Обновление суммарного резерва (на случай переоткрытия).
-            const manpowerEl = document.getElementById('factionManpower');
-            if (manpowerEl && this.game) {
-              const mp = this.game.getFactionManpower(this.game.playerId);
-              manpowerEl.textContent = `${mp.total} / ${mp.max}`;
-            }
-
-      slider.addEventListener("change", () => {
-        const percent = Number(slider.value);
-        this.game.setTreasuryShare(this.game.playerId, percent / 100);
-        console.log(`🎚️ Отчисления в казну: ${percent}%`);
-      });
-    }
-
-    const policyBtns = this.content.querySelectorAll(".policy-btn");
-
-    policyBtns.forEach((btn) => {
-      btn.addEventListener("click", () => {
-        const policy = btn.dataset.policy;
-        this.game.setFundingPolicy(this.game.playerId, policy);
-
-        policyBtns.forEach((b) => b.classList.remove("active"));
-        btn.classList.add("active");
-
-        console.log(
-          policy === "center"
-            ? "🏛️ Финансирование: центр оплачивает"
-            : "🏙️ Финансирование: город платит сам"
-        );
-      });
-    });
-
     // ИЗМЕНЕНО: обработчики радио «Призыв».
     document.querySelectorAll('input[name="draftPolicy"]').forEach(radio => {
       if (this.game.getDraftPolicy) {

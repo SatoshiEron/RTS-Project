@@ -18,14 +18,12 @@ export default class EconomyAI {
   }
 
   getBudgetForCity(city) {
-    const eco = this.game.getFactionEconomy(this.game.aiId);
-    const source = eco && eco.fundingPolicy === 'center' ? 'center' : 'city';
+    // ИЗМЕНЕНО: единая казна — бюджет всегда золото фракции.
+    const amount = city.owner === this.game.playerId
+      ? this.game.playerGold
+      : this.game.aiGold;
 
-    if (source === 'center') {
-      return { source: 'center', amount: this.game.aiGold };
-    }
-
-    return { source: 'city', amount: city.resources || 0 };
+    return { source: 'center', amount };
   }
 
   // ============================================================

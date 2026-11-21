@@ -1393,6 +1393,11 @@
         const sign = net.net >= 0 ? '+' : '';
         goldChange.textContent = `${sign}${net.net}`;
         goldChange.style.color = net.net >= 0 ? '#66cc88' : '#ff6666';
+        // ИЗМЕНЕНО: разбивка чистого дохода по наведению.
+        goldChange.title =
+          `Доход городов и провинций: +${net.income}\n` +
+          `Содержание юнитов: −${net.upkeep}\n` +
+          `Итого: ${net.net} за цикл`;
       }
 
       if (aiGoldAmount) {
