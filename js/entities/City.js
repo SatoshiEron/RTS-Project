@@ -39,7 +39,6 @@ export default class City {
       coal: 0,
     };
 
-    this.resources = 0;
     this.garrison = garrison;
 
     // ===== HP И ЗАЩИТА =====
@@ -51,14 +50,7 @@ export default class City {
     this.growthRate = 0.01;
   }
 
-  updateEconomy(dt) {
-    this.population += this.population * this.growthRate * dt;
-
-    const effectiveIncome =
-      this.income * this.level * (this.population / 1000);
-
-    this.resources += effectiveIncome * dt;
-  }
+  // ===== ГАРНИЗОН =====
 
   // ===== ГАРНИЗОН =====
 
@@ -134,14 +126,5 @@ export default class City {
 
   isDestroyed() {
     return this.hp <= 0;
-  }
-
-  recruitUnit(cost) {
-    if (this.resources >= cost) {
-      this.resources -= cost;
-      return true;
-    }
-
-    return false;
   }
 }

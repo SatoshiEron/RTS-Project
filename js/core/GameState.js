@@ -1,6 +1,5 @@
 import Unit, { UNIT_TYPES } from "../entities/Unit.js";
 import City from "../entities/City.js";
-import EconomySystem from "../systems/EconomySystem.js";
 import CombatSystem from "../systems/CombatSystem.js";
 import AISystem from "../systems/ai/AISystem.js";
 import DiplomacySystem from "../systems/DiplomacySystem.js";
@@ -49,7 +48,6 @@ export default class GameState {
 
     this.playerGold = 100;
     this.aiGold = 100;
-    this.goldPerTurn = 0;
 
     // ИЗМЕНЕНО: ресурсы фракций (общий пул).
     // Пока только накопление и отображение, без трат.
@@ -82,8 +80,6 @@ export default class GameState {
     this.diplomacy = new DiplomacySystem(this);
 
     // ===== СИСТЕМЫ =====
-    // ВНИМАНИЕ: EconomySystem — МЁРТВЫЙ код, его update() не вызывается.
-    this.economy = new EconomySystem(this);
     this.combat = new CombatSystem(this);
     this.ai = new AISystem(this);
 
@@ -713,7 +709,6 @@ export default class GameState {
 
     for (const city of this.cities) {
       city.owner = 0;
-      city.resources = 0;
     }
     for (const prov of this.map.provinces || []) {
       prov.owner = 0;
@@ -1599,8 +1594,6 @@ export default class GameState {
   }
 
   updateEconomy() {
-    this.goldPerTurn = 0;
-
     // ИЗМЕНЕНО (Шаг 1): рост населения и пополнение manpower.
     for (const city of this.cities) {
       if (city.owner === 0) continue;
@@ -1621,7 +1614,6 @@ export default class GameState {
 
       if (city.owner === this.playerId) {
         this.playerGold += income;
-        this.goldPerTurn += income;
       } else if (city.owner === this.aiId) {
         this.aiGold += income;
       }
@@ -1634,7 +1626,6 @@ export default class GameState {
         this.playerFood += res.food;
         if (res.gold > 0) {
           this.playerGold += res.gold;
-          this.goldPerTurn += res.gold;
         }
       } else if (city.owner === this.aiId) {
         this.aiOre += res.ore;
@@ -1653,7 +1644,6 @@ export default class GameState {
 
       if (prov.owner === this.playerId) {
         this.playerGold += provIncome;
-        this.goldPerTurn += provIncome;
       } else if (prov.owner === this.aiId) {
         this.aiGold += provIncome;
       }
@@ -1668,7 +1658,6 @@ export default class GameState {
 
     this.playerGold -= playerUnits.length;
     this.aiGold -= aiUnits.length;
-    this.goldPerTurn -= playerUnits.length;
 
     if (this.playerGold < 0) this.playerGold = 0;
     if (this.aiGold < 0) this.aiGold = 0;
