@@ -10,6 +10,27 @@ export default class Renderer {
     this.bgLoaded = false;
     this.paused = false;
 
+    // ===== РЕЖИМ КАРТЫ (СЛОИ) =====
+    // ИЗМЕНЕНО: переключатель политический/физический слой.
+    // 'political' — территория, владельцы провинций, фронт, флаги.
+    // 'physical'  — только физическая основа: PNG-подложка (или
+    //               процедурная раскраска суша/вода), дороги, города, юниты.
+    this.mapMode = 'political';
+
+    // ===== МАРКЕРЫ ЮНИТОВ =====
+    // ИЗМЕНЕНО: режим маркеров юнитов.
+    // 'type'    — плашка с силуэтом типа формирования (прежний вид).
+    // 'faction' — круглая фишка в цвете фракции с эмблемой
+    //             (стиль анимированных исторических карт).
+    this.unitMarkerMode = 'type';
+
+    // Эмблемы фракций для режима 'faction' (рисуются в коде).
+    // Новые фракции добавляются сюда: { [factionId]: 'cross' | 'star' | ... }
+    this.factionEmblems = {
+      [this.game.playerId]: 'cross',
+      [this.game.aiId]: 'star',
+    };
+
     // ===== ЗОНЫ КОНТРОЛЯ =====
     this.fogMode = 0;
     this.fogCityRadius = 0.12;
@@ -145,6 +166,18 @@ export default class Renderer {
 
   markTerritoryDirty() {
     this.territoryDirty = true;
+  }
+
+  // ИЗМЕНЕНО: переключение слоёв карты (клавиша M / команда /map).
+  toggleMapMode() {
+    this.mapMode = this.mapMode === 'political' ? 'physical' : 'political';
+    return this.mapMode;
+  }
+
+  // ИЗМЕНЕНО: переключение маркеров юнитов (клавиша N / команда /markers).
+  toggleUnitMarkerMode() {
+    this.unitMarkerMode = this.unitMarkerMode === 'type' ? 'faction' : 'type';
+    return this.unitMarkerMode;
   }
 
   _ownerSignature() {
@@ -410,8 +443,10 @@ export default class Renderer {
 
     if (!map) return;
 
-    // ===== ТЕРРИТОРИЯ =====
-    this.drawTerritory();
+    // ===== ТЕРРИТОРИЯ (только политический слой) =====
+    if (this.mapMode === 'political') {
+      this.drawTerritory();
+    }
 
     this.drawProvinces(map.provinces || []);
 
@@ -426,12 +461,17 @@ export default class Renderer {
     this.drawRoads(roads, "#666666", 2, null, "road");
     this.drawRoads(rails, "#ffcc00", 3, [6, 4], "rail");
 
-    this.drawFrontline();
+    // Фронт — только в политическом слое.
+    if (this.mapMode === 'political') {
+      this.drawFrontline();
+    }
 
     this.drawPoints(map.points || []);
 
-    // ===== ФЛАГИ ГОРОДОВ =====
-    this.drawCityFlags();
+    // ===== ФЛАГИ ГОРОДОВ (только политический слой) =====
+    if (this.mapMode === 'political') {
+      this.drawCityFlags();
+    }
 
     for (const city of this.game.cities || []) {
       this.drawCity(city);
@@ -920,7 +960,23 @@ export default class Renderer {
 
       const atWar = this.game.isAtWar(this.game.playerId, this.game.aiId);
 
-      if (prov.owner === 1) {
+      // ИЗМЕНЕНО: физический слой — без политической раскраски.
+      if (this.mapMode === 'physical') {
+        const hasBg = this.bgLoaded && this.bgImage;
+
+        if (hasBg) {
+          // Поверх физической PNG-карты — только тонкие нейтральные границы.
+          fillColor = null;
+          strokeColor = "rgba(200, 205, 215, 0.22)";
+        } else if (prov.type === 'water') {
+          // Нет подложки: процедурная физическая раскраска по типу.
+          fillColor = "rgba(52, 94, 148, 0.45)";
+          strokeColor = "rgba(90, 140, 200, 0.5)";
+        } else {
+          fillColor = "rgba(118, 128, 92, 0.35)";
+          strokeColor = "rgba(170, 175, 150, 0.35)";
+        }
+      } else if (prov.owner === 1) {
         fillColor = "rgba(50, 150, 255, 0.15)";
         strokeColor = atWar ? "rgba(255, 80, 80, 0.7)" : "rgba(50, 255, 150, 0.5)";
       } else if (prov.owner === 2) {
@@ -932,11 +988,14 @@ export default class Renderer {
         strokeColor = `hsla(${hue}, 70%, 70%, 0.2)`;
       }
 
-      ctx.fillStyle = fillColor;
       ctx.strokeStyle = strokeColor;
       ctx.lineWidth = 1;
 
-      ctx.fill();
+      // ИЗМЕНЕНО: в физическом режиме с подложкой заливки нет.
+      if (fillColor) {
+        ctx.fillStyle = fillColor;
+        ctx.fill();
+      }
       ctx.stroke();
 
       if (this.game.selectedProvince && this.game.selectedProvince.id === prov.id) {
@@ -977,18 +1036,26 @@ export default class Renderer {
         const cityType = city ? city.type : (p.cityType || 'city');
         const level = city ? city.level : 1;
 
-        this.drawCityIcon(ctx, s.x, s.y, cityType, level);
+        // ИЗМЕНЕНО: стратегический зум — ромб-маркер в стиле аним. карт;
+        // иконка типа города — только на близком зуме (там, где нанимают).
+        if (zoom > 1.5) {
+          this.drawCityIcon(ctx, s.x, s.y, cityType, level);
+        } else {
+          this.drawCityDiamond(ctx, s.x, s.y, level, zoom);
+        }
 
-        // Имя города.
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "10px Segoe UI";
+        // Имя города: тёмная обводка + заливка, кегль растёт с уровнем.
+        const cityName = p.name || `Город #${p.id}`;
+        const fontSize = 10 + Math.min(Math.max(level - 1, 0), 4);
+        ctx.font = `600 ${fontSize}px "Segoe UI", sans-serif`;
         ctx.textAlign = "center";
         ctx.textBaseline = "bottom";
-        ctx.shadowColor = "rgba(0,0,0,0.8)";
-        ctx.shadowBlur = 4;
-        const cityName = p.name || `Город #${p.id}`;
+        ctx.lineJoin = "round";
+        ctx.lineWidth = 3;
+        ctx.strokeStyle = "rgba(0, 0, 0, 0.85)";
+        ctx.strokeText(cityName, s.x, s.y - 14);
+        ctx.fillStyle = "#ffffff";
         ctx.fillText(cityName, s.x, s.y - 14);
-        ctx.shadowBlur = 0;
       } else {
         ctx.fillStyle = "#666666";
 
@@ -1125,6 +1192,39 @@ export default class Renderer {
 
       ctx.restore();
     }
+  }
+
+    // ============================================================
+  // ИЗМЕНЕНО: ромб-маркер города (стратегический зум, стиль аним. карт).
+  // Размер растёт с уровнем; максимальный уровень — внутренняя рамка.
+  // ============================================================
+  drawCityDiamond(ctx, x, y, level = 1, zoom = 1) {
+    // ИЗМЕНЕНО: компенсация отдаления камеры — чем дальше камера,
+    // тем крупнее маркер; потолок ×1.8, чтобы не было каши на минимальном зуме.
+    const zoomBoost = Math.min(1.8, Math.max(1, Math.pow(1 / zoom, 0.6)));
+    const size = (4.5 + Math.min(Math.max(level - 1, 0), 4) * 1.2) * zoomBoost;
+    const h = size / 2;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(Math.PI / 4);
+
+    ctx.beginPath();
+    ctx.rect(-h, -h, size, size);
+    ctx.fillStyle = "#f2f2f2";
+    ctx.strokeStyle = "rgba(10, 12, 18, 0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.fill();
+    ctx.stroke();
+
+    if (level >= 5) {
+      const ih = h * 0.55;
+      ctx.beginPath();
+      ctx.rect(-ih, -ih, ih * 2, ih * 2);
+      ctx.stroke();
+    }
+
+    ctx.restore();
   }
 
     // ============================================================
@@ -1361,18 +1461,31 @@ export default class Renderer {
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    // Плашка: тёмная подложка + полупрозрачный тинт фракции + обводка.
-    this.roundRectPath(ctx, s.x - radius, s.y - radius, radius * 2, radius * 2, 4);
-    ctx.fillStyle = "rgba(8, 12, 22, 0.85)";
-    ctx.fill();
-    ctx.fillStyle = fillColor;
-    ctx.fill();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 2;
-    ctx.stroke();
+    if (this.unitMarkerMode === 'faction') {
+      // Круглая фишка в цвете фракции + белая эмблема (стиль аним. карт).
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, radius, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = "rgba(8, 12, 22, 0.9)";
+      ctx.lineWidth = 2;
+      ctx.stroke();
 
-    // Символ типа по центру плашки.
-    this.drawUnitTypeMark(ctx, s.x, s.y, type, color);
+      this.drawFactionEmblem(ctx, s.x, s.y, radius, unit.owner);
+    } else {
+      // Плашка: тёмная подложка + полупрозрачный тинт фракции + обводка.
+      this.roundRectPath(ctx, s.x - radius, s.y - radius, radius * 2, radius * 2, 4);
+      ctx.fillStyle = "rgba(8, 12, 22, 0.85)";
+      ctx.fill();
+      ctx.fillStyle = fillColor;
+      ctx.fill();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      // Символ типа по центру плашки.
+      this.drawUnitTypeMark(ctx, s.x, s.y, type, color);
+    }
 
     // Выделение: аккуратное жёлтое кольцо без свечения.
     if (isSelected) {
@@ -1484,6 +1597,50 @@ getUnitTypeKey(unit) {
   return "unknown";
 }
 
+  // ============================================================
+  // ИЗМЕНЕНО: эмблемы фракций для режима маркеров 'faction'.
+  // Простые геометрические символы — читаются на ~10 px.
+  // ============================================================
+  drawFactionEmblem(ctx, x, y, r, owner) {
+    const emblem = this.factionEmblems[owner] || 'ring';
+
+    ctx.save();
+    ctx.strokeStyle = "#ffffff";
+    ctx.fillStyle = "#ffffff";
+    ctx.lineJoin = "round";
+    ctx.lineCap = "round";
+
+    if (emblem === 'cross') {
+      // Прямой крест: два толстых прямоугольника.
+      const arm = r * 0.62;
+      const w = r * 0.3;
+      ctx.fillRect(x - w / 2, y - arm, w, arm * 2);
+      ctx.fillRect(x - arm, y - w / 2, arm * 2, w);
+    } else if (emblem === 'star') {
+      // Пятиконечная звезда.
+      const R = r * 0.62;
+      const ir = R * 0.42;
+      ctx.beginPath();
+      for (let i = 0; i < 10; i++) {
+        const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+        const rad = i % 2 === 0 ? R : ir;
+        const px = x + Math.cos(ang) * rad;
+        const py = y + Math.sin(ang) * rad;
+        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+      }
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      // Запасной вариант для фракций без эмблемы — кольцо.
+      ctx.beginPath();
+      ctx.arc(x, y, r * 0.45, 0, Math.PI * 2);
+      ctx.lineWidth = r * 0.22;
+      ctx.stroke();
+    }
+
+    ctx.restore();
+  }
+
   // ИЗМЕНЕНО: крупные силуэты типов формирований (~9px, центр плашки).
   // Единый штрих 1.5, округлые концы; танк/грузовик — с заливкой.
   drawUnitTypeMark(ctx, x, y, type, color) {
@@ -1568,47 +1725,158 @@ getUnitTypeKey(unit) {
     ctx.restore();
   }
 
+  // ============================================================
+  // ИЗМЕНЕНО: стрелки приказов (стиль HoI4 / аним. исторические карты).
+  // Рисуются для ВСЕХ движущихся юнитов игрока, не только выделенного.
+  // Приказы ИИ не показываются — это была бы бесплатная разведка.
+  // Атака (есть targetUnit) — красноватая стрелка, движение — белая.
+  // ============================================================
   drawUnitTarget() {
     const ctx = this.ctx;
-    const unit = this.game.selectedUnit;
+    const game = this.game;
 
-    if (!unit || !unit.movementCommandActive || unit.state !== "moving" || !unit.isAlive()) {
-      return;
+    if (!game || !game.units) return;
+
+    const now = this.animTime || performance.now();
+
+    for (const unit of game.units) {
+      if (unit.owner !== game.playerId) continue;
+      if (!unit.isAlive()) continue;
+      if (!unit.movementCommandActive || unit.state !== "moving") continue;
+
+      const pos = this.worldToScreen(unit.x, unit.y);
+      const target = this.worldToScreen(unit.targetX, unit.targetY);
+
+      // Оба конца далеко за экраном — не рисуем.
+      const m = 120;
+      if (
+        (pos.x < -m && target.x < -m) ||
+        (pos.x > this.canvas.width + m && target.x > this.canvas.width + m) ||
+        (pos.y < -m && target.y < -m) ||
+        (pos.y > this.canvas.height + m && target.y > this.canvas.height + m)
+      ) {
+        continue;
+      }
+
+      this.drawOrderArrow(ctx, pos, target, now, unit.id, !!unit.targetUnit);
     }
+  }
 
-    const target = this.worldToScreen(unit.targetX, unit.targetY);
-    const pos = this.worldToScreen(unit.x, unit.y);
+  // Изогнутая стрелка приказа: тело по квадратичной кривой,
+  // треугольный наконечник, «бегущие» штрихи по телу.
+  // Все размеры — в экранных пикселях (не зависят от зума).
+  drawOrderArrow(ctx, pos, target, now, seed, isAttack) {
+    const dx = target.x - pos.x;
+    const dy = target.y - pos.y;
+    const len = Math.hypot(dx, dy);
+
+    const MIN_LEN = 26; // слишком короткий приказ — стрелка не нужна
+    if (len < MIN_LEN) return;
+
+    // Толщина тела растёт с длиной стрелки (кламп 3–10 px).
+    const w = Math.max(3, Math.min(10, len * 0.045));
+
+    // Изгиб пропорционален «диагональности» направления:
+    // приказы строго по осям (0°/90°/180°/270°) — прямые стрелки,
+    // максимальный изгиб — у диагоналей (45°). Знак sin(2θ) чередует
+    // сторону горба по квадрантам — карта не «косит» в одну сторону.
+    const angle = Math.atan2(dy, dx);
+    const bend = Math.min(len * 0.18, 42) * Math.sin(2 * angle);
+    const nx = -dy / len;
+    const ny = dx / len;
+    const cx = (pos.x + target.x) / 2 + nx * bend;
+    const cy = (pos.y + target.y) / 2 + ny * bend;
+
+    // Начало стрелки — чуть впереди маркера юнита, чтобы не перекрывать его.
+    let sx = cx - pos.x;
+    let sy = cy - pos.y;
+    const sLen = Math.hypot(sx, sy) || 1;
+    const START_OFF = 12;
+    const x1 = pos.x + (sx / sLen) * START_OFF;
+    const y1 = pos.y + (sy / sLen) * START_OFF;
+
+    // Касательная в конце кривой — направление наконечника.
+    const ex = target.x - cx;
+    const ey = target.y - cy;
+    const eLen = Math.hypot(ex, ey) || 1;
+    const ux = ex / eLen;
+    const uy = ey / eLen;
+    const px = -uy;
+    const py = ux;
+
+    const headLen = w * 3.2;
+    const headHalf = w * 1.35;
+    const baseX = target.x - ux * headLen;
+    const baseY = target.y - uy * headLen;
+
+    // Цвета: приказ движения — белая стрелка, атаки — красноватая.
+    const bodyColor = isAttack
+      ? "rgba(255, 96, 96, 0.92)"
+      : "rgba(245, 248, 255, 0.92)";
+    const dashColor = isAttack
+      ? "rgba(255, 190, 190, 0.55)"
+      : "rgba(255, 255, 255, 0.55)";
+    const outlineColor = isAttack
+      ? "rgba(24, 8, 8, 0.85)"
+      : "rgba(10, 12, 18, 0.85)";
 
     ctx.save();
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
 
-    ctx.strokeStyle = "rgba(255, 255, 100, 0.4)";
-    ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 4]);
+    // 1. Тёмная окантовка тела.
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(cx, cy, target.x, target.y);
+    ctx.strokeStyle = outlineColor;
+    ctx.lineWidth = w + 3;
+    ctx.stroke();
+
+    // 2. Светлое тело.
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(cx, cy, target.x, target.y);
+    ctx.strokeStyle = bodyColor;
+    ctx.lineWidth = w;
+    ctx.stroke();
+
+    // 3. «Бегущие» штрихи по телу (фаза разведена по id юнита,
+    //    чтобы стрелки группы не пульсировали синхронно).
+    const dashPeriod = w * 2.8;
+    const flow = (now * 0.06 + (seed % 97) * 13) % dashPeriod;
 
     ctx.beginPath();
-    ctx.arc(target.x, target.y, 8, 0, Math.PI * 2);
+    ctx.moveTo(x1, y1);
+    ctx.quadraticCurveTo(cx, cy, target.x, target.y);
+    ctx.strokeStyle = dashColor;
+    ctx.lineWidth = Math.max(1.5, w * 0.45);
+    ctx.setLineDash([w * 1.1, w * 1.7]);
+    ctx.lineDashOffset = -flow;
     ctx.stroke();
     ctx.setLineDash([]);
 
-    ctx.strokeStyle = "rgba(255, 255, 100, 0.3)";
-    ctx.lineWidth = 1;
+    // 4. Наконечник: тёмная подложка + светлый треугольник.
+    ctx.beginPath();
+    ctx.moveTo(target.x + ux * 1.5, target.y + uy * 1.5);
+    ctx.lineTo(
+      baseX + px * (headHalf + 1.8),
+      baseY + py * (headHalf + 1.8)
+    );
+    ctx.lineTo(
+      baseX - px * (headHalf + 1.8),
+      baseY - py * (headHalf + 1.8)
+    );
+    ctx.closePath();
+    ctx.fillStyle = outlineColor;
+    ctx.fill();
 
     ctx.beginPath();
-    ctx.moveTo(target.x - 4, target.y);
-    ctx.lineTo(target.x + 4, target.y);
-    ctx.moveTo(target.x, target.y - 4);
-    ctx.lineTo(target.x, target.y + 4);
-    ctx.stroke();
-
-    ctx.strokeStyle = "rgba(255, 255, 100, 0.15)";
-    ctx.lineWidth = 1;
-    ctx.setLineDash([4, 8]);
-
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-    ctx.lineTo(target.x, target.y);
-    ctx.stroke();
-    ctx.setLineDash([]);
+    ctx.moveTo(target.x, target.y);
+    ctx.lineTo(baseX + px * headHalf, baseY + py * headHalf);
+    ctx.lineTo(baseX - px * headHalf, baseY - py * headHalf);
+    ctx.closePath();
+    ctx.fillStyle = bodyColor;
+    ctx.fill();
 
     ctx.restore();
   }

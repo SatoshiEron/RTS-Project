@@ -1,3 +1,5 @@
+import { UNIT_TYPES } from "../entities/Unit.js";
+
 export default class FactionPanel {
   constructor(game) {
     this.game = game;
@@ -100,24 +102,39 @@ export default class FactionPanel {
     // ---- Считаем суммарные показатели ----
     // ИЗМЕНЕНО: единая казна — весь доход городов целиком.
     let totalCityIncome = 0;
+    let totalPopulation = 0;
+    let cityCount = 0;
 
     for (const city of game.cities) {
       if (city.owner !== pid) continue;
       totalCityIncome += game.getCityIncome(city);
+      totalPopulation += city.population || 0;
+      cityCount++;
     }
 
-    // Доход провинций.
+    // Доход провинций: начисляется за ЛЮБУЮ свою провинцию (включая
+    // водные — так работает updateEconomy), поэтому считаем все.
+    // Для статистики территории воду отдельно не считаем.
     let provinceIncome = 0;
+    let landOwned = 0;
+    let landTotal = 0;
     for (const prov of game.map.provinces || []) {
+      if (prov.type !== "water") {
+        landTotal++;
+        if (prov.owner === pid) landOwned++;
+      }
       if (prov.owner !== pid) continue;
       if (!prov.vertices || prov.vertices.length < 3) continue;
       provinceIncome += 5;
     }
 
-    // Содержание юнитов.
-    const upkeep = game.units.filter(
+    // Юниты фракции.
+    const aliveUnits = game.units.filter(
       (u) => u.owner === pid && u.isAlive()
-    ).length;
+    );
+
+    // Содержание юнитов.
+    const upkeep = aliveUnits.length;
 
     // Чистый доход казны.
     const netTreasury = totalCityIncome + provinceIncome - upkeep;
@@ -132,11 +149,125 @@ export default class FactionPanel {
       ? game.getDraftPolicy(pid)
       : 'city';
 
+    // ---- Армия: состав по типам и статусы ----
+    const typeCounts = {};
+    let moving = 0;
+    let fighting = 0;
+    let reserve = 0;
+
+    for (const u of aliveUnits) {
+      const t = u.type || u.role || "infantry";
+      typeCounts[t] = (typeCounts[t] || 0) + 1;
+
+      if (u.state === "moving") moving++;
+      else if (u.state === "fighting") fighting++;
+      else reserve++;
+    }
+
+    const TYPE_ICONS = {
+      militia: "⚒️",
+      infantry: "🪖",
+      motorized: "🚚",
+      armored: "🛡️",
+      artillery: "💥",
+      marines: "⚓",
+    };
+
+    let armyRows = "";
+    for (const [type, count] of Object.entries(typeCounts)) {
+      const stats = UNIT_TYPES[type];
+      const icon = TYPE_ICONS[type] || "⚔️";
+      const name = stats ? stats.name : type;
+      armyRows += `
+        <div class="faction-stat">
+          <span class="label">${icon} ${name}</span>
+          <span class="value">${count}</span>
+        </div>`;
+    }
+    if (!armyRows) {
+      armyRows = `
+        <div class="faction-slider-hint" style="margin-top:4px;">
+          Нет действующих формирований
+        </div>`;
+    }
+
+    // ---- Столица ----
+    const capital = game.getCapital ? game.getCapital(pid) : null;
+    let capitalHtml;
+    if (capital && capital.owner === pid) {
+      capitalHtml = `
+        <div class="faction-stat">
+          <span class="label">⭐ ${capital.name}</span>
+          <span class="value">ур. ${capital.level}</span>
+        </div>
+        <div class="faction-stat">
+          <span class="label">❤️ Прочность</span>
+          <span class="value">${Math.floor(capital.hp)} / ${capital.maxHp}</span>
+        </div>
+        <div class="faction-stat">
+          <span class="label">🛡️ Гарнизон</span>
+          <span class="value">${capital.garrison} форм.</span>
+        </div>
+        <div class="faction-stat">
+          <span class="label">💰 Доход</span>
+          <span class="value faction-positive">+${game.getCityIncome(capital)}💰</span>
+        </div>`;
+    } else if (capital) {
+      capitalHtml = `
+        <div class="faction-stat">
+          <span class="label">⭐ ${capital.name}</span>
+          <span class="value faction-negative">❌ захвачена</span>
+        </div>`;
+    } else {
+      capitalHtml = `
+        <div class="faction-slider-hint" style="margin-top:4px;">
+          Столица не назначена
+        </div>`;
+    }
+
     // ---- HTML ----
     this.content.innerHTML = `
       <div class="faction-panel-header">
         <h2>🏛️ Управление фракцией</h2>
         <span class="faction-owner">👤 Игрок</span>
+      </div>
+
+      <div class="faction-section">
+        <div class="faction-section-title">⭐ Столица</div>
+        ${capitalHtml}
+      </div>
+
+      <div class="faction-section">
+        <div class="faction-section-title">⚔️ Армия — ${aliveUnits.length} форм.</div>
+
+        ${armyRows}
+
+        <div class="faction-stat faction-stat-total">
+          <span class="label">📋 Статус</span>
+          <span class="value">🥾 ${moving} · ⚔️ ${fighting} · 🏕️ ${reserve}</span>
+        </div>
+        <div class="faction-slider-hint" style="margin-top:4px;">
+          🥾 на марше · ⚔️ в бою · 🏕️ в резерве
+        </div>
+      </div>
+
+      <div class="faction-section">
+        <div class="faction-section-title">🗺️ Территория</div>
+
+        <div class="faction-stat">
+          <span class="label">🏙️ Города</span>
+          <span class="value">${cityCount}</span>
+        </div>
+
+        <div class="faction-stat">
+          <span class="label">🧭 Провинции (суша)</span>
+          <span class="value">${landOwned} из ${landTotal}</span>
+        </div>
+
+        <div class="faction-stat">
+          <span class="label">👥 Население</span>
+          <span class="value">${Math.floor(totalPopulation).toLocaleString("ru-RU")}</span>
+        </div>
       </div>
 
       <div class="faction-section">

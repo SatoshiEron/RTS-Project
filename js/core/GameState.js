@@ -77,6 +77,10 @@ export default class GameState {
       },
     };
 
+    // ИЗМЕНЕНО: столицы фракций (id города). Заполняется при старте игры;
+    // используется панелью фракции и пригодится для механики захвата столицы.
+    this.capitalCityIds = {};
+
     this.diplomacy = new DiplomacySystem(this);
 
     // ===== СИСТЕМЫ =====
@@ -939,6 +943,7 @@ export default class GameState {
 
     if (playerCities.length > 0) {
       const capital = playerCities[0];
+      this.capitalCityIds[this.playerId] = capital.id;
       this.spawnUnit({
         owner: this.playerId,
         x: capital.x,
@@ -952,6 +957,7 @@ export default class GameState {
 
     if (aiCities.length > 0) {
       const capital = aiCities[0];
+      this.capitalCityIds[this.aiId] = capital.id;
       this.spawnUnit({
         owner: this.aiId,
         x: capital.x,
@@ -1206,6 +1212,14 @@ export default class GameState {
       max += city.manpowerMax || 0;
     }
     return { total: Math.floor(total), max: Math.floor(max) };
+  }
+
+  // ИЗМЕНЕНО: столица фракции. Возвращает объект города или null,
+  // если столица ещё не назначена. Флаг «потеряна» проверяется по owner.
+  getCapital(factionId) {
+    const id = this.capitalCityIds ? this.capitalCityIds[factionId] : null;
+    if (id == null) return null;
+    return this.cities.find((c) => c.id === id) || null;
   }
 
   // ============================================================
@@ -1640,7 +1654,9 @@ export default class GameState {
     for (const prov of this.map.provinces || []) {
       if (!prov.vertices || prov.vertices.length < 3) continue;
 
-      const provIncome = prov.owner !== 0 ? 5 : 0;
+      // ИЗМЕНЕНО: водные провинции дохода не дают (фикс: порт, нанесённый
+      // на воду в редакторе карт, больше не приносит +5 в казну).
+      const provIncome = (prov.owner !== 0 && prov.type !== 'water') ? 5 : 0;
 
       if (prov.owner === this.playerId) {
         this.playerGold += provIncome;
