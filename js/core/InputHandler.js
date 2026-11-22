@@ -43,6 +43,40 @@ export default class InputHandler {
 
     // ===== КЛАВИАТУРА =====
     window.addEventListener('keydown', (e) => {
+      // Не перехватываем ввод в полях ввода (терминал и т.п.).
+      const tag = e.target && e.target.tagName;
+      const typing = tag === 'INPUT' || tag === 'TEXTAREA';
+
+      // ИЗМЕНЕНО: переключение слоёв карты — клавиша M (по коду клавиши,
+      // работает в любой раскладке, включая русскую).
+      if (!typing && e.code === 'KeyM') {
+        const mode = this.renderer.toggleMapMode();
+        const msg = mode === 'physical'
+          ? '🗺️ Слой карты: физический'
+          : '🗺️ Слой карты: политический';
+        if (typeof window.terminalLog === 'function') {
+          window.terminalLog(msg, 'info');
+        } else {
+          console.log(msg);
+        }
+        return;
+      }
+
+      // ИЗМЕНЕНО: переключение маркеров юнитов — клавиша N (по коду клавиши,
+      // работает в любой раскладке, включая русскую).
+      if (!typing && e.code === 'KeyN') {
+        const mode = this.renderer.toggleUnitMarkerMode();
+        const msg = mode === 'faction'
+          ? '🎖️ Маркеры юнитов: эмблемы фракций'
+          : '🎖️ Маркеры юнитов: типы формирований';
+        if (typeof window.terminalLog === 'function') {
+          window.terminalLog(msg, 'info');
+        } else {
+          console.log(msg);
+        }
+        return;
+      }
+
       if (e.key === 'Escape') {
         // ИЗМЕНЕНО: закрываем пикер по Escape
         if (this.unitPicker) {

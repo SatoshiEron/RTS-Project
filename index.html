@@ -1796,6 +1796,8 @@
           terminalLog('  /peace ai          — Предложить мир ИИ', 'system');
           terminalLog('  /diplomacy         — Показать дипломатию', 'system');
           terminalLog('  /manpower          — Резерв людей (игрок / ИИ)', 'system');
+          terminalLog('  /map               — Слой карты: политический/физический (клавиша M)', 'system');
+          terminalLog('  /markers           — Маркеры юнитов: типы/эмблемы фракций (клавиша N)', 'system');
           break;
 
         case '/speed':
@@ -1921,6 +1923,38 @@
           } else {
             terminalLog('❌ Используйте: /policy city|center', 'error');
           }
+          break;
+        }
+
+        // ИЗМЕНЕНО: переключение слоёв карты (то же, что клавиша M).
+        case '/map': {
+          if (!renderer) {
+            terminalLog('❌ Рендерер ещё не создан', 'error');
+            break;
+          }
+          const mode = renderer.toggleMapMode();
+          terminalLog(
+            mode === 'physical'
+              ? '🗺️ Слой карты: физический'
+              : '🗺️ Слой карты: политический',
+            'info'
+          );
+          break;
+        }
+
+        // ИЗМЕНЕНО: переключение маркеров юнитов (то же, что клавиша N).
+        case '/markers': {
+          if (!renderer) {
+            terminalLog('❌ Рендерер ещё не создан', 'error');
+            break;
+          }
+          const mmode = renderer.toggleUnitMarkerMode();
+          terminalLog(
+            mmode === 'faction'
+              ? '🎖️ Маркеры юнитов: эмблемы фракций'
+              : '🎖️ Маркеры юнитов: типы формирований',
+            'info'
+          );
           break;
         }
 
