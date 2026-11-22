@@ -25,11 +25,28 @@ export default class Renderer {
     this.unitMarkerMode = 'type';
 
     // Эмблемы фракций для режима 'faction' (рисуются в коде).
-    // Новые фракции добавляются сюда: { [factionId]: 'cross' | 'star' | ... }
+    // Новые фракции добавляются сюда: { [factionId]: <id из availableEmblems> }
     this.factionEmblems = {
       [this.game.playerId]: 'cross',
       [this.game.aiId]: 'star',
     };
+
+    // Галерея доступных эмблем (для выбора в панели фракции).
+    // id используется в factionEmblems, name — в UI-выборе.
+    this.availableEmblems = [
+      { id: 'cross',     name: 'Крест' },
+      { id: 'star',      name: 'Звезда' },
+      { id: 'crescent',  name: 'Полумесяц' },
+      { id: 'lightning', name: 'Молния' },
+      { id: 'arrow',     name: 'Стрела' },
+      { id: 'shield',    name: 'Щит' },
+      { id: 'sword',     name: 'Меч' },
+      { id: 'sun',       name: 'Солнце' },
+      { id: 'triangle',  name: 'Треугольник' },
+      { id: 'diamond',   name: 'Ромб' },
+      { id: 'claw',      name: 'Коготь' },
+      { id: 'ring',      name: 'Кольцо' },
+    ];
 
     // ===== ЗОНЫ КОНТРОЛЯ =====
     this.fogMode = 0;
@@ -1599,43 +1616,174 @@ getUnitTypeKey(unit) {
 
   // ============================================================
   // ИЗМЕНЕНО: эмблемы фракций для режима маркеров 'faction'.
-  // Простые геометрические символы — читаются на ~10 px.
+  // Галерея из 12 пресетов (this.availableEmblems) — простые
+  // геометрические символы, читаются на ~10 px.
   // ============================================================
   drawFactionEmblem(ctx, x, y, r, owner) {
     const emblem = this.factionEmblems[owner] || 'ring';
+    this.drawEmblemShape(ctx, emblem, x, y, r);
+  }
 
+  // Рисует эмблему по id. Вся геометрия — здесь, чтобы выбор
+  // эмблемы в UI рисовал превью тем же кодом.
+  drawEmblemShape(ctx, emblem, x, y, r) {
     ctx.save();
     ctx.strokeStyle = "#ffffff";
     ctx.fillStyle = "#ffffff";
     ctx.lineJoin = "round";
     ctx.lineCap = "round";
 
-    if (emblem === 'cross') {
-      // Прямой крест: два толстых прямоугольника.
-      const arm = r * 0.62;
-      const w = r * 0.3;
-      ctx.fillRect(x - w / 2, y - arm, w, arm * 2);
-      ctx.fillRect(x - arm, y - w / 2, arm * 2, w);
-    } else if (emblem === 'star') {
-      // Пятиконечная звезда.
-      const R = r * 0.62;
-      const ir = R * 0.42;
-      ctx.beginPath();
-      for (let i = 0; i < 10; i++) {
-        const ang = -Math.PI / 2 + (i * Math.PI) / 5;
-        const rad = i % 2 === 0 ? R : ir;
-        const px = x + Math.cos(ang) * rad;
-        const py = y + Math.sin(ang) * rad;
-        if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+    switch (emblem) {
+      case 'cross': {
+        // Прямой крест: два толстых прямоугольника.
+        const arm = r * 0.62;
+        const w = r * 0.3;
+        ctx.fillRect(x - w / 2, y - arm, w, arm * 2);
+        ctx.fillRect(x - arm, y - w / 2, arm * 2, w);
+        break;
       }
-      ctx.closePath();
-      ctx.fill();
-    } else {
-      // Запасной вариант для фракций без эмблемы — кольцо.
-      ctx.beginPath();
-      ctx.arc(x, y, r * 0.45, 0, Math.PI * 2);
-      ctx.lineWidth = r * 0.22;
-      ctx.stroke();
+
+      case 'star': {
+        // Пятиконечная звезда.
+        const R = r * 0.62;
+        const ir = R * 0.42;
+        ctx.beginPath();
+        for (let i = 0; i < 10; i++) {
+          const ang = -Math.PI / 2 + (i * Math.PI) / 5;
+          const rad = i % 2 === 0 ? R : ir;
+          const px = x + Math.cos(ang) * rad;
+          const py = y + Math.sin(ang) * rad;
+          if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+
+      case 'crescent': {
+        // Полумесяц: толстая дуга, рожками вверх.
+        ctx.beginPath();
+        ctx.arc(x, y - r * 0.05, r * 0.42, Math.PI * 0.3, Math.PI * 1.7);
+        ctx.lineWidth = r * 0.3;
+        ctx.stroke();
+        break;
+      }
+
+      case 'lightning': {
+        // Молния: ломаная зигзаг с заливкой.
+        ctx.beginPath();
+        ctx.moveTo(x + r * 0.18, y - r * 0.62);
+        ctx.lineTo(x - r * 0.24, y + r * 0.06);
+        ctx.lineTo(x - r * 0.02, y + r * 0.06);
+        ctx.lineTo(x - r * 0.18, y + r * 0.62);
+        ctx.lineTo(x + r * 0.24, y - r * 0.06);
+        ctx.lineTo(x + r * 0.02, y - r * 0.06);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+
+      case 'arrow': {
+        // Стрела вверх: древко + наконечник.
+        const w = r * 0.22;
+        ctx.fillRect(x - w / 2, y - r * 0.1, w, r * 0.72);
+        ctx.beginPath();
+        ctx.moveTo(x, y - r * 0.62);
+        ctx.lineTo(x + r * 0.42, y - r * 0.05);
+        ctx.lineTo(x - r * 0.42, y - r * 0.05);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+
+      case 'shield': {
+        // Щит: закруглённый верх, остриё вниз.
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.45, y - r * 0.42);
+        ctx.lineTo(x + r * 0.45, y - r * 0.42);
+        ctx.quadraticCurveTo(x + r * 0.5, y + r * 0.2, x, y + r * 0.6);
+        ctx.quadraticCurveTo(x - r * 0.5, y + r * 0.2, x - r * 0.45, y - r * 0.42);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+
+      case 'sword': {
+        // Меч по диагонали: клинок + гарда.
+        ctx.lineWidth = r * 0.22;
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.38, y + r * 0.45);
+        ctx.lineTo(x + r * 0.38, y - r * 0.5);
+        ctx.stroke();
+        ctx.lineWidth = r * 0.18;
+        ctx.beginPath();
+        ctx.moveTo(x - r * 0.42, y + r * 0.08);
+        ctx.lineTo(x - r * 0.05, y + r * 0.45);
+        ctx.stroke();
+        break;
+      }
+
+      case 'sun': {
+        // Солнце: диск + 8 лучей.
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.28, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.lineWidth = r * 0.16;
+        for (let i = 0; i < 8; i++) {
+          const a = (i * Math.PI) / 4;
+          ctx.beginPath();
+          ctx.moveTo(x + Math.cos(a) * r * 0.38, y + Math.sin(a) * r * 0.38);
+          ctx.lineTo(x + Math.cos(a) * r * 0.6, y + Math.sin(a) * r * 0.6);
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case 'triangle': {
+        ctx.beginPath();
+        ctx.moveTo(x, y - r * 0.55);
+        ctx.lineTo(x + r * 0.5, y + r * 0.4);
+        ctx.lineTo(x - r * 0.5, y + r * 0.4);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+
+      case 'diamond': {
+        ctx.beginPath();
+        ctx.moveTo(x, y - r * 0.58);
+        ctx.lineTo(x + r * 0.42, y);
+        ctx.lineTo(x, y + r * 0.58);
+        ctx.lineTo(x - r * 0.42, y);
+        ctx.closePath();
+        ctx.fill();
+        break;
+      }
+
+      case 'claw': {
+        // Коготь: три дуговых штриха.
+        ctx.lineWidth = r * 0.18;
+        for (const dx of [-0.28, 0, 0.28]) {
+          ctx.beginPath();
+          ctx.moveTo(x + r * (dx - 0.1), y - r * 0.45);
+          ctx.quadraticCurveTo(
+            x + r * (dx + 0.12), y,
+            x + r * dx, y + r * 0.5
+          );
+          ctx.stroke();
+        }
+        break;
+      }
+
+      case 'ring':
+      default: {
+        // Кольцо — запасной вариант для фракций без эмблемы.
+        ctx.beginPath();
+        ctx.arc(x, y, r * 0.45, 0, Math.PI * 2);
+        ctx.lineWidth = r * 0.22;
+        ctx.stroke();
+        break;
+      }
     }
 
     ctx.restore();

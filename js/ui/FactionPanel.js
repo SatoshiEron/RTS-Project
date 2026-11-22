@@ -253,6 +253,25 @@ export default class FactionPanel {
         </div>`;
     }
 
+    // ---- Эмблема фракции (галерея из Renderer) ----
+    const renderer = game.renderer;
+    const currentEmblem = renderer
+      ? (renderer.factionEmblems[game.playerId] || 'ring')
+      : 'ring';
+    const emblemOptions = renderer && renderer.availableEmblems
+      ? renderer.availableEmblems.map(e => `
+          <canvas
+            class="emblem-option"
+            data-emblem="${e.id}"
+            title="${e.name}"
+            width="36"
+            height="36"
+            style="width:36px;height:36px;border-radius:6px;cursor:pointer;
+              background:#0a0d14;
+              border:2px solid ${e.id === currentEmblem ? '#ffd24d' : '#2a3040'};"
+          ></canvas>`).join('')
+      : '';
+
     // ---- HTML ----
     this.content.innerHTML = `
       <div class="faction-panel-header">
@@ -264,6 +283,17 @@ export default class FactionPanel {
         <div class="faction-section-title">⭐ Столица</div>
         ${capitalHtml}
       </div>
+
+      ${renderer ? `
+      <div class="faction-section">
+        <div class="faction-section-title">🚩 Эмблема фракции</div>
+        <div style="display:grid;grid-template-columns:repeat(6,1fr);gap:6px;">
+          ${emblemOptions}
+        </div>
+        <div class="faction-slider-hint" style="margin-top:4px;">
+          Отображается на маркерах юнитов в режиме «по фракции» (клавиша N)
+        </div>
+      </div>` : ''}
 
       <div class="faction-section">
         <div class="faction-section-title">⚔️ Армия — ${aliveUnits.length} форм.</div>
@@ -430,6 +460,30 @@ export default class FactionPanel {
   // ОБРАБОТЧИКИ
   // ============================================================
   _bindControls() {
+    // Галерея эмблем: превью рисуется тем же кодом, что и на карте.
+    const embRenderer = this.game.renderer;
+    if (embRenderer && embRenderer.drawEmblemShape) {
+      const rgb = embRenderer.territoryColors
+        ? embRenderer.territoryColors.player.join(',')
+        : '50,150,255';
+      this.content.querySelectorAll('canvas.emblem-option').forEach(cv => {
+        const ctx = cv.getContext('2d');
+        const c = cv.width / 2;
+        // Фишка в цвете фракции + эмблема поверх (как на карте).
+        ctx.fillStyle = `rgb(${rgb})`;
+        ctx.beginPath();
+        ctx.arc(c, c, c - 3, 0, Math.PI * 2);
+        ctx.fill();
+        embRenderer.drawEmblemShape(ctx, cv.dataset.emblem, c, c, c - 7);
+
+        cv.addEventListener('click', () => {
+          embRenderer.factionEmblems[this.game.playerId] = cv.dataset.emblem;
+          console.log(`🚩 Эмблема фракции: ${cv.title}`);
+          this.render(); // обновить рамку выбора
+        });
+      });
+    }
+
     // ИЗМЕНЕНО: ползунок мобилизации (mobilization v2).
     const mobSlider = this.content.querySelector("#mobilizationSlider");
     if (mobSlider) {
