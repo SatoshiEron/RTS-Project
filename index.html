@@ -1319,6 +1319,11 @@
 
         renderer = new Renderer(canvas, game, camera);
         renderer.loadCitySprites('assets/icons/');
+        // Фикс: game.renderer объявлялся в GameState, но никогда не
+        // присваивался — вызовы game.renderer.markTerritoryDirty() молча
+        // пропускались. Теперь ссылка есть; заодно панели могут
+        // обращаться к renderer (галерея эмблем).
+        game.renderer = renderer;
 
         if (pendingBackgroundImage) {
           renderer.setBackgroundImage(pendingBackgroundImage);
