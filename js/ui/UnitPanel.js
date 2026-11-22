@@ -1,7 +1,8 @@
+import { fmtCompact } from "./format.js";
+
 export default class UnitPanel {
   constructor(game) {
     this.game = game;
-
     // ИЗМЕНЕНО: DOM-панель юнита (по аналогии с CityPanel).
     this.overlay = document.createElement("div");
     this.overlay.className = "unit-panel-overlay";
@@ -230,6 +231,12 @@ export default class UnitPanel {
         <div class="unit-stat unit-stat-wide">
           <span class="label">❤️ HP</span>
           <span class="value">${hp} / ${maxHp}</span>
+        </div>
+
+        <!-- ИЗМЕНЕНО: личный состав (mobilization v2) -->
+        <div class="unit-stat unit-stat-wide">
+          <span class="label">👥 Личный состав</span>
+          <span class="value">${fmtCompact(unit.men || 0)} / ${fmtCompact(unit.maxMen || 0)}</span>
         </div>
 
         <div class="unit-hp-bar">

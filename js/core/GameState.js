@@ -4,6 +4,28 @@ import CombatSystem from "../systems/CombatSystem.js";
 import AISystem from "../systems/ai/AISystem.js";
 import DiplomacySystem from "../systems/DiplomacySystem.js";
 
+// ============================================================
+// ИЗМЕНЕНО: баланс «Время + Население + Manpower v2».
+// Все числа новых механик — только здесь.
+// ============================================================
+export const BALANCE = {
+  SECONDS_PER_DAY: 1.0,
+  DAYS_PER_YEAR: 360,
+  DAYS_PER_MONTH: 30,
+  ECONOMY_TICK_DAYS: 7,
+  START_YEAR: 1936,
+  DEV_SPEED_CONTROL: true,
+  POP_SCALE: 12,
+  POP_GROWTH_YEARLY: 0.012,
+  POP_BONUS_DIVISOR: 12000,
+  MOBILIZATION_MAX: 0.30,
+  MOBILIZATION_RATE: 0.02,
+  MOBILIZATION_INCOME_PENALTY: 0.005,
+  WOUNDED_RETURN: 0.15,
+  WOUNDED_DELAY_WEEKS: 2,
+  MANPOWER_SYSTEM: 'reserve',
+};
+
 const ROAD_SPEED_MULTIPLIERS = {
   road: 2,
   rail: 3,
@@ -23,6 +45,9 @@ const MAX_CITY_LEVEL = 5;
 export default class GameState {
   constructor(world) {
     this.map = world;
+
+    // ИЗМЕНЕНО: доступ к балансу для систем (без циклических импортов).
+    this.BALANCE = BALANCE;
 
     // ===== GRID =====
     this.grid = null;
@@ -60,6 +85,13 @@ export default class GameState {
     this.economyTimer = 0;
     this.economyInterval = 1.0;
 
+    // ИЗМЕНЕНО: игровой календарь (дни от старта) и расписание тиков
+    // (mobilization v2). economyTimer выше — устаревшие поля, не используются.
+    this.gameDay = 0;
+    this.nextEconomyDay = BALANCE.ECONOMY_TICK_DAYS;
+    // День последнего боевого контакта (для мобилизации ИИ).
+    this.lastCombatDay = null;
+
     // ===== ФРАКЦИИ =====
     this.playerId = 1;
     this.aiId = 2;
@@ -68,12 +100,24 @@ export default class GameState {
     // ИЗМЕНЕНО: единая казна фракции. Локальные бюджеты городов и политики
     // fundingPolicy/treasuryShare упразднены — весь доход идёт в казну,
     // все траты списываются из казны. Осталась только политика призыва.
+    // ИЗМЕНЕНО: пул резервистов (mobilization v2).
     this.factionEconomy = {
       [this.playerId]: {
         draftPolicy: 'city',
+        // Игрок стартует с базовой мобилизацией 8% (как ИИ), иначе
+        // в начале игры призыв невозможен до ручного поднятия ползунка.
+        mobilizationTarget: 0.08,
+        mobilized: 0.08,
+        reservePool: 0,
+        pendingWounded: [],
       },
       [this.aiId]: {
         draftPolicy: 'center',
+        // ИИ стартует с базовой мобилизацией 8%.
+        mobilizationTarget: 0.08,
+        mobilized: 0.08,
+        reservePool: 0,
+        pendingWounded: [],
       },
     };
 
@@ -661,7 +705,8 @@ export default class GameState {
         type: p.cityType || "city",
         provinceId: provinceId,
         owner: owner,
-        population: 1000,
+        // ИЗМЕНЕНО: реалистичное стартовое население (×12).
+        population: 12000,
         income: 10,
         level: 1,
       });
@@ -1017,6 +1062,12 @@ export default class GameState {
     });
 
     unit.gameRef = this;
+
+    // ИЗМЕНЕНО: численность формирования (mobilization v2):
+    // 100 человек на «очко» призыва типа.
+    unit.maxMen = this.getRecruitManpower(type) * 100;
+    unit.men = unit.maxMen;
+
     this.units.push(unit);
 
     return unit;
@@ -1098,8 +1149,9 @@ export default class GameState {
   // ===== ЭКОНОМИКА =====
 
   getCityIncome(city) {
-    const base = city.level * 2;
-    const popBonus = Math.floor(city.population / 1000);
+    const base = (city.level || 1) * 2;
+    // ИЗМЕНЕНО: бонус населения считается от реалистичной численности.
+    const popBonus = Math.floor((city.population || 0) / BALANCE.POP_BONUS_DIVISOR);
     let income = base + popBonus;
 
     if (city.provinceId) {
@@ -1112,6 +1164,15 @@ export default class GameState {
           income = Math.floor(income * 0.8);
         }
       }
+    }
+
+    // ИЗМЕНЕНО: мобилизация снижает доход города
+    // (множитель 1 − mobilized% × MOBILIZATION_INCOME_PENALTY).
+    const eco = this.getFactionEconomy(city.owner);
+    if (eco && eco.mobilized > 0) {
+      income = Math.floor(
+        income * (1 - eco.mobilized * 100 * BALANCE.MOBILIZATION_INCOME_PENALTY)
+      );
     }
 
     return income;
@@ -1292,7 +1353,8 @@ export default class GameState {
   // ИЗМЕНЕНО: прозрачная разбивка дохода города (для UI).
   getCityIncomeBreakdown(city) {
     const base = (city.level || 1) * 2;
-    const popBonus = Math.floor(city.population / 1000);
+    // ИЗМЕНЕНО: тот же делитель, что и в getCityIncome.
+    const popBonus = Math.floor((city.population || 0) / BALANCE.POP_BONUS_DIVISOR);
 
     let mult = 1;
     let provinceMod = '×1.0';
@@ -1398,8 +1460,16 @@ export default class GameState {
     let manpowerPlan = null;
 
     if (action === 'recruit' && cost.manpower > 0) {
-      manpowerPlan = this.planDraft(city, cost.manpower);
-      manpowerOk = manpowerPlan !== null;
+      if (BALANCE.MANPOWER_SYSTEM === 'reserve') {
+        // ИЗМЕНЕНО: призыв из пула резервистов (v2).
+        const eco = this.getFactionEconomy(city.owner);
+        const need = cost.manpower * 100;
+        manpowerOk = !!eco && eco.reservePool >= need;
+      } else {
+        // Ветка 'local' — прежний план списания по городам.
+        manpowerPlan = this.planDraft(city, cost.manpower);
+        manpowerOk = manpowerPlan !== null;
+      }
     }
 
     return {
@@ -1495,15 +1565,33 @@ export default class GameState {
       };
     }
 
-    // 2. Проверка людей (план).
-    const draftPlan = this.planDraft(city, manpowerNeed);
-    if (!draftPlan) {
-      return {
-        ok: false, reason: 'not_enough_manpower',
-        needed: manpowerNeed,
-        cost: stats.cost,
-        policy: this.getDraftPolicy(city.owner),
-      };
+    // 2. Проверка людей.
+    const isReserve = BALANCE.MANPOWER_SYSTEM === 'reserve';
+    let draftPlan = null;
+
+    if (isReserve) {
+      // ИЗМЕНЕНО: призыв из пула резервистов (v2).
+      const eco = this.getFactionEconomy(city.owner);
+      const need = manpowerNeed * 100;
+      if (!eco || eco.reservePool < need) {
+        return {
+          ok: false, reason: 'manpower',
+          needed: need,
+          pool: eco ? Math.floor(eco.reservePool) : 0,
+          cost: stats.cost,
+        };
+      }
+    } else {
+      // Ветка 'local' — прежний план списания по городам.
+      draftPlan = this.planDraft(city, manpowerNeed);
+      if (!draftPlan) {
+        return {
+          ok: false, reason: 'not_enough_manpower',
+          needed: manpowerNeed,
+          cost: stats.cost,
+          policy: this.getDraftPolicy(city.owner),
+        };
+      }
     }
 
     // 3. Проверка и списание золота.
@@ -1517,8 +1605,15 @@ export default class GameState {
       ore: oreCost, goods: goodsCost, food: foodCost,
     });
 
-    // 5. Списание людей по плану.
-    this.applyDraftPlan(draftPlan);
+    // 5. Списание людей.
+    if (isReserve) {
+      // ИЗМЕНЕНО: призыв из пула резервистов (v2).
+      const eco = this.getFactionEconomy(city.owner);
+      eco.reservePool -= manpowerNeed * 100;
+    } else {
+      // Ветка 'local' — списание по плану по городам.
+      this.applyDraftPlan(draftPlan);
+    }
 
     // 6. Создание юнита.
     const unit = this.spawnUnit({
@@ -1535,19 +1630,22 @@ export default class GameState {
       foodCost > 0 ? `🌾 ${foodCost}` : '',
     ].filter(Boolean).join(' ');
 
-    const draftStr = draftPlan
-      .map(p => `${p.city.name} −${p.amount}`)
-      .join(', ');
+    const draftStr = isReserve
+      ? `пул −${manpowerNeed * 100}`
+      : draftPlan
+          .map(p => `${p.city.name} −${p.amount}`)
+          .join(', ');
 
     console.log(
       `⚔️ Нанят ${unit.typeName} #${unit.id} в "${city.name}" ` +
       `(${pay.cost}💰 + ${manpowerNeed}👥 [${draftStr}]` +
-      `${resStr ? ' + ' + resStr : ''} из ${pay.source === 'city' ? 'города' : 'казны'})`
+      `${resStr ? ' + ' + resStr : ''} из казны)`
     );
 
     return {
       ok: true, unit, cost: pay.cost, source: pay.source,
       draftPlan, manpowerSpent: manpowerNeed,
+      reserveSpent: isReserve ? manpowerNeed * 100 : 0,
     };
   }
 
@@ -1604,15 +1702,24 @@ export default class GameState {
       }
     }
 
-    return { income, upkeep, net: income - upkeep };
+    // ИЗМЕНЕНО: экономический цикл = неделя (ECONOMY_TICK_DAYS),
+    // значения приведены к недельному темпу, как в updateEconomy().
+    const TICK = BALANCE.ECONOMY_TICK_DAYS;
+    return { income: income * TICK, upkeep: upkeep * TICK, net: (income - upkeep) * TICK };
   }
 
+  // ИЗМЕНЕНО: экономический тик — раз в неделю (ECONOMY_TICK_DAYS дней).
+  // Все суммы ×7, чтобы недельный темп соответствовал прежнему
+  // посекундному (1 игровой секунда = 1 дню).
   updateEconomy() {
-    // ИЗМЕНЕНО (Шаг 1): рост населения и пополнение manpower.
+    const TICK = BALANCE.ECONOMY_TICK_DAYS;
+
+    // Рост населения — годовой темп, раз в неделю.
     for (const city of this.cities) {
       if (city.owner === 0) continue;
 
-      city.population *= 1.001;
+      city.population *=
+        (1 + BALANCE.POP_GROWTH_YEARLY * BALANCE.ECONOMY_TICK_DAYS / BALANCE.DAYS_PER_YEAR);
 
       if (typeof city.updateManpower === 'function') {
         city.updateManpower();
@@ -1624,7 +1731,7 @@ export default class GameState {
     for (const city of this.cities) {
       if (city.owner === 0) continue;
 
-      const income = this.getCityIncome(city);
+      const income = this.getCityIncome(city) * TICK;
 
       if (city.owner === this.playerId) {
         this.playerGold += income;
@@ -1635,18 +1742,18 @@ export default class GameState {
       const res = this.getCityResourceProduction(city);
 
       if (city.owner === this.playerId) {
-        this.playerOre += res.ore;
-        this.playerGoods += res.goods;
-        this.playerFood += res.food;
+        this.playerOre += res.ore * TICK;
+        this.playerGoods += res.goods * TICK;
+        this.playerFood += res.food * TICK;
         if (res.gold > 0) {
-          this.playerGold += res.gold;
+          this.playerGold += res.gold * TICK;
         }
       } else if (city.owner === this.aiId) {
-        this.aiOre += res.ore;
-        this.aiGoods += res.goods;
-        this.aiFood += res.food;
+        this.aiOre += res.ore * TICK;
+        this.aiGoods += res.goods * TICK;
+        this.aiFood += res.food * TICK;
         if (res.gold > 0) {
-          this.aiGold += res.gold;
+          this.aiGold += res.gold * TICK;
         }
       }
     }
@@ -1656,7 +1763,7 @@ export default class GameState {
 
       // ИЗМЕНЕНО: водные провинции дохода не дают (фикс: порт, нанесённый
       // на воду в редакторе карт, больше не приносит +5 в казну).
-      const provIncome = (prov.owner !== 0 && prov.type !== 'water') ? 5 : 0;
+      const provIncome = (prov.owner !== 0 && prov.type !== 'water') ? 5 * TICK : 0;
 
       if (prov.owner === this.playerId) {
         this.playerGold += provIncome;
@@ -1672,11 +1779,137 @@ export default class GameState {
       (u) => u.owner === this.aiId && u.isAlive()
     );
 
-    this.playerGold -= playerUnits.length;
-    this.aiGold -= aiUnits.length;
+    this.playerGold -= playerUnits.length * TICK;
+    this.aiGold -= aiUnits.length * TICK;
 
     if (this.playerGold < 0) this.playerGold = 0;
     if (this.aiGold < 0) this.aiGold = 0;
+  }
+
+  // ============================================================
+  // ИЗМЕНЕНО: мобилизация и пул резервистов (v2).
+  // ============================================================
+
+  isReserveSystem() {
+    return BALANCE.MANPOWER_SYSTEM === 'reserve';
+  }
+
+  totalPopulation(factionId) {
+    let total = 0;
+    for (const city of this.cities) {
+      if (city.owner === factionId) total += city.population || 0;
+    }
+    return total;
+  }
+
+  servingMen(factionId) {
+    let total = 0;
+    for (const unit of this.units) {
+      if (unit.owner === factionId && unit.isAlive()) {
+        total += unit.men || 0;
+      }
+    }
+    return total;
+  }
+
+  // Недельный тик мобилизации: доля догоняет цель, пул — целевой размер.
+  updateMobilization(factionId) {
+    const eco = this.getFactionEconomy(factionId);
+    if (!eco) return;
+
+    eco.mobilized +=
+      (eco.mobilizationTarget - eco.mobilized) * BALANCE.MOBILIZATION_RATE;
+    if (Math.abs(eco.mobilizationTarget - eco.mobilized) < 0.0005) {
+      eco.mobilized = eco.mobilizationTarget;
+    }
+
+    const totalPop = this.totalPopulation(factionId);
+    const serving = this.servingMen(factionId);
+    const targetPool = Math.max(0, eco.mobilized * totalPop - serving);
+
+    eco.reservePool += (targetPool - eco.reservePool) * BALANCE.MOBILIZATION_RATE;
+    if (eco.reservePool < 0) eco.reservePool = 0;
+
+    // Созревшие раненые возвращаются в пул.
+    for (let i = eco.pendingWounded.length - 1; i >= 0; i--) {
+      const w = eco.pendingWounded[i];
+      if (w.dueDay <= this.gameDay) {
+        eco.reservePool += w.amount;
+        eco.pendingWounded.splice(i, 1);
+      }
+    }
+  }
+
+  setMobilization(factionId, value) {
+    const eco = this.getFactionEconomy(factionId);
+    if (!eco) return;
+    const v = Math.max(0, Math.min(BALANCE.MOBILIZATION_MAX, Number(value) || 0));
+    eco.mobilizationTarget = v;
+  }
+
+  getReserveInfo(factionId) {
+    const eco = this.getFactionEconomy(factionId);
+    if (!eco) {
+      return { target: 0, mobilized: 0, pool: 0, serving: 0, totalPopulation: 0, incomePenalty: 0 };
+    }
+    return {
+      target: eco.mobilizationTarget,
+      mobilized: eco.mobilized,
+      pool: Math.floor(eco.reservePool),
+      serving: Math.floor(this.servingMen(factionId)),
+      totalPopulation: Math.floor(this.totalPopulation(factionId)),
+      incomePenalty: eco.mobilized * 100 * BALANCE.MOBILIZATION_INCOME_PENALTY,
+    };
+  }
+
+  // Тратит людей из пула (лечение/пополнение). Возвращает фактически
+  // потраченное (может быть меньше запроса при пустом пуле).
+  spendReserve(factionId, menNeeded) {
+    const eco = this.getFactionEconomy(factionId);
+    if (!eco || menNeeded <= 0) return 0;
+    const spent = Math.min(eco.reservePool, menNeeded);
+    eco.reservePool -= spent;
+    return spent;
+  }
+
+  // Погибшие вычитаются из населения случайного своего города.
+  removePopulation(factionId, amount) {
+    const ownCities = this.cities.filter(c => c.owner === factionId);
+    if (!ownCities.length || amount <= 0) return;
+    const city = ownCities[Math.floor(Math.random() * ownCities.length)];
+    city.population = Math.max(0, (city.population || 0) - amount);
+  }
+
+  // Пересчёт численности после урона: потери, погибшие, раненые в очередь.
+  onCasualties(unit, prevMen) {
+    if (!this.isReserveSystem() || !unit.maxMen) return;
+
+    unit.men = Math.round(unit.maxMen * unit.hp / unit.maxHp);
+    const dead = Math.max(0, prevMen - unit.men);
+    if (dead <= 0) return;
+
+    this.removePopulation(unit.owner, dead);
+
+    const wounded = Math.round(dead * BALANCE.WOUNDED_RETURN);
+    if (wounded > 0) {
+      const eco = this.getFactionEconomy(unit.owner);
+      if (eco) {
+        eco.pendingWounded.push({
+          amount: wounded,
+          dueDay: this.gameDay + BALANCE.WOUNDED_DELAY_WEEKS * 7,
+        });
+      }
+    }
+  }
+
+  // ИЗМЕНЕНО: игровая дата из накопленных дней (месяц 30 дней, год 360).
+  getGameDate() {
+    const day = Math.max(0, Math.floor(this.gameDay));
+    return {
+      day: (day % BALANCE.DAYS_PER_MONTH) + 1,
+      month: (Math.floor(day / BALANCE.DAYS_PER_MONTH) % 12) + 1,
+      year: BALANCE.START_YEAR + Math.floor(day / BALANCE.DAYS_PER_YEAR),
+    };
   }
 
   openCityPanel(city) {
@@ -1769,11 +2002,16 @@ export default class GameState {
       city.updateGarrison(this.units);
     }
 
-    this.economyTimer += dt;
+    // ИЗМЕНЕНО: игровой календарь. dt уже умножен на speedMultiplier.
+    this.gameDay += dt / BALANCE.SECONDS_PER_DAY;
 
-    if (this.economyTimer >= this.economyInterval) {
-      this.economyTimer = 0;
+    // ИЗМЕНЕНО: экономический тик — раз в ECONOMY_TICK_DAYS игровых дней
+    // (неделя), вместо посекундного.
+    if (this.gameDay >= this.nextEconomyDay) {
+      this.nextEconomyDay += BALANCE.ECONOMY_TICK_DAYS;
       this.updateEconomy();
+      this.updateMobilization(this.playerId);
+      this.updateMobilization(this.aiId);
     }
 
     this.ai.update(dt);

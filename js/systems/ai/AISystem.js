@@ -25,6 +25,14 @@ export default class AISystem {
     if (this.thinkTimer < AIConfig.THINK_INTERVAL) return;
     this.thinkTimer = 0;
 
+    // ИЗМЕНЕНО: мобилизация ИИ — проверка раз в игровую неделю
+    // (mobilization v2).
+    if (this.mobCheckDay === undefined) this.mobCheckDay = 0;
+    if (this.game.gameDay >= this.mobCheckDay) {
+      this.mobCheckDay = this.game.gameDay + 7;
+      this.updateMobilizationAI();
+    }
+
     this.economy.update();
 
     // 2. Оценка угроз
@@ -55,6 +63,29 @@ export default class AISystem {
 
     // 5. Очистка выполненных задач
     this.cleanupTasks(tasks);
+  }
+
+  // ИЗМЕНЕНО: мобилизация ИИ (mobilization v2).
+  // Базовая — 8% в мире; при войне с боевыми контактами за последние
+  // 30 дней — рост до 20% шагом 2% в неделю; месяц тишины — обратно к 8%.
+  updateMobilizationAI() {
+    const game = this.game;
+    if (!game.setMobilization) return;
+
+    const atWar = game.isAtWar(game.aiId, game.playerId);
+    const recentCombat =
+      game.lastCombatDay !== null &&
+      (game.gameDay - game.lastCombatDay) <= 30;
+
+    let target = 0.08;
+
+    if (atWar && recentCombat) {
+      const eco = game.getFactionEconomy(game.aiId);
+      const current = eco ? eco.mobilizationTarget : 0.08;
+      target = Math.min(0.20, current + 0.02);
+    }
+
+    game.setMobilization(game.aiId, target);
   }
 
   findBestTask(tasks) {

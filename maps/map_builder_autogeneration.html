@@ -199,6 +199,18 @@
       <button data-mode="trace">✏️ Обводка</button>
       <button data-mode="province_paint" style="background:#1a3a2a;border-color:#4a9a6a;">🖌️ Провинции</button>
       <button data-mode="connect" style="background:#2a3a4a;border-color:#4a7a9a;">🔗 Соединить</button>
+      <button data-mode="waterbrush" style="background:#0f2a44;border-color:#3a8aca;">💧 Кисть воды</button>
+    </div>
+    <!-- ИЗМЕНЕНО: управление кистью воды (видно только в режиме waterbrush) -->
+    <div id="waterBrushControls" style="display:none;margin-top:6px;">
+      <label style="font-size:12px;color:#a0b0d0;">Радиус: <span id="waterBrushRadiusVal">6</span> кл.</label>
+      <input id="waterBrushRadius" type="range" min="2" max="24" value="6" style="width:100%;">
+      <div class="btn-group" style="margin-top:4px;">
+        <button id="waterBrushApplyBtn" style="color:#66bbff;">💧 Применить (Enter)</button>
+        <button id="waterBrushClearBtn" style="color:#ff6666;">✖ Очистить (Esc)</button>
+      </div>
+      <div class="hint">Красьте воду как в Paint. Контур мазка станет берегом,
+        суша под ним разрежется, вода станет провинцией. Узкий мазок — река.</div>
     </div>
     <div id="status">⏸️ Выберите режим</div>
   </div>
@@ -537,6 +549,22 @@ let lastMouseY = 0;
 
 // ИЗМЕНЕНО: флаг показа вершин провинций.
 let showVertices = false;
+
+// ============================================================
+// ИЗМЕНЕНО: КИСТЬ ВОДЫ — растровая маска + превью.
+// Модель: мазки красят клетки сетки WATER_GRID×WATER_GRID;
+// при применении контур маски становится берегом (провинция
+// type:"water"), а суша под мазком разрезается по берегу.
+// ============================================================
+const WATER_GRID = 256;
+let waterMask = new Uint8Array(WATER_GRID * WATER_GRID);
+let waterMaskHasPaint = false;
+let isWaterPainting = false;
+let lastWaterDab = null;
+const waterMaskCanvas = document.createElement("canvas");
+waterMaskCanvas.width = WATER_GRID;
+waterMaskCanvas.height = WATER_GRID;
+const waterMaskCtx = waterMaskCanvas.getContext("2d");
 
 // ============================================================
 //  МНОЖЕСТВЕННОЕ ВЫДЕЛЕНИЕ
@@ -2166,6 +2194,503 @@ function restoreUndo() {
 }
 
 // ============================================================
+//  ИЗМЕНЕНО: КИСТЬ ВОДЫ — рисование маски
+// ============================================================
+function getWaterBrushRadiusCells() {
+  const el = document.getElementById("waterBrushRadius");
+  return el ? parseInt(el.value, 10) : 6;
+}
+
+// Мазок кисти: закрасить круг радиуса r клеток в маске + превью.
+function paintWaterDab(wx, wy) {
+  const r = getWaterBrushRadiusCells();
+  const cx = wx * WATER_GRID;
+  const cy = wy * WATER_GRID;
+
+  const c0 = Math.max(0, Math.floor(cx - r));
+  const c1 = Math.min(WATER_GRID - 1, Math.ceil(cx + r));
+  const r0 = Math.max(0, Math.floor(cy - r));
+  const r1 = Math.min(WATER_GRID - 1, Math.ceil(cy + r));
+
+  for (let row = r0; row <= r1; row++) {
+    for (let col = c0; col <= c1; col++) {
+      const dx = col + 0.5 - cx;
+      const dy = row + 0.5 - cy;
+      if (dx * dx + dy * dy <= r * r) {
+        waterMask[row * WATER_GRID + col] = 1;
+      }
+    }
+  }
+
+  waterMaskCtx.fillStyle = "rgba(60, 140, 255, 0.45)";
+  waterMaskCtx.beginPath();
+  waterMaskCtx.arc(cx, cy, r, 0, Math.PI * 2);
+  waterMaskCtx.fill();
+
+  waterMaskHasPaint = true;
+}
+
+// Линия мазков между двумя точками (чтобы быстрые движения не рвались).
+function paintWaterLine(x0, y0, x1, y1) {
+  const rWorld = getWaterBrushRadiusCells() / WATER_GRID;
+  const dist = Math.hypot(x1 - x0, y1 - y0);
+  const step = Math.max(rWorld * 0.4, 1e-5);
+  const n = Math.max(1, Math.ceil(dist / step));
+  for (let i = 1; i <= n; i++) {
+    paintWaterDab(x0 + ((x1 - x0) * i) / n, y0 + ((y1 - y0) * i) / n);
+  }
+}
+
+function clearWaterMask() {
+  waterMask.fill(0);
+  waterMaskCtx.clearRect(0, 0, WATER_GRID, WATER_GRID);
+  waterMaskHasPaint = false;
+  isWaterPainting = false;
+  lastWaterDab = null;
+}
+
+// ============================================================
+//  ИЗМЕНЕНО: контуры маски → векторные кольца.
+//  Вариант buildClusterBoundary, возвращающий ВСЕ несвязные
+//  области (у оригинала — только крупнейшую).
+// ============================================================
+function buildAllBoundaryLoops(clusterCells, gridSize) {
+  if (!clusterCells.length) return [];
+
+  const occupied = new Set(clusterCells.map(c => `${c.col},${c.row}`));
+  const edges = [];
+  const addEdge = (x1, y1, x2, y2) => {
+    edges.push({ start: `${x1},${y1}`, end: `${x2},${y2}`, x1, y1, x2, y2 });
+  };
+
+  for (const cell of clusterCells) {
+    const { col, row } = cell;
+    if (!occupied.has(`${col},${row - 1}`)) addEdge(col, row, col + 1, row);
+    if (!occupied.has(`${col + 1},${row}`)) addEdge(col + 1, row, col + 1, row + 1);
+    if (!occupied.has(`${col},${row + 1}`)) addEdge(col + 1, row + 1, col, row + 1);
+    if (!occupied.has(`${col - 1},${row}`)) addEdge(col, row + 1, col, row);
+  }
+
+  const outgoing = new Map();
+  for (const e of edges) {
+    if (!outgoing.has(e.start)) outgoing.set(e.start, []);
+    outgoing.get(e.start).push(e);
+  }
+
+  const unused = new Set(edges);
+  const loops = [];
+
+  while (unused.size > 0) {
+    const firstEdge = unused.values().next().value;
+    const loop = [];
+    const startKey = firstEdge.start;
+    let currentEdge = firstEdge;
+    let guard = 0;
+
+    while (currentEdge && guard < edges.length + 10) {
+      guard++;
+      unused.delete(currentEdge);
+      loop.push({ x: currentEdge.x1 / gridSize, y: currentEdge.y1 / gridSize });
+
+      const nextKey = currentEdge.end;
+      if (nextKey === startKey) break;
+
+      const candidates = (outgoing.get(nextKey) || []).filter(e => unused.has(e));
+      if (!candidates.length) { loop.length = 0; break; }
+      currentEdge = candidates[0];
+    }
+
+    if (loop.length >= 3) loops.push(simplifyGridLoop(loop));
+  }
+
+  loops.sort((a, b) => Math.abs(polygonArea(b)) - Math.abs(polygonArea(a)));
+  return loops;
+}
+
+// ============================================================
+//  ИЗМЕНЕНО: геометрия вычитания воды из суши.
+//  Оба кольца нормализуются в одну ориентацию; суша идётся
+//  вперёд, вода — назад (разность полигонов, Weiler–Atherton
+//  в упрощённой форме для простых колец).
+// ============================================================
+function signedRingArea(ring) {
+  let a = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const p = ring[i];
+    const q = ring[(i + 1) % ring.length];
+    a += p.x * q.y - q.x * p.y;
+  }
+  return a / 2;
+}
+
+function ensureRingCCW(ring) {
+  return signedRingArea(ring) < 0 ? ring.slice().reverse() : ring;
+}
+
+// Строгое пересечение отрезков (касания концами не считаем).
+function segSegParam(a, b, c, d) {
+  const d1x = b.x - a.x, d1y = b.y - a.y;
+  const d2x = d.x - c.x, d2y = d.y - c.y;
+  const den = d1x * d2y - d1y * d2x;
+  if (Math.abs(den) < 1e-12) return null;
+  const t = ((c.x - a.x) * d2y - (c.y - a.y) * d2x) / den;
+  const u = ((c.x - a.x) * d1y - (c.y - a.y) * d1x) / den;
+  if (t <= 1e-9 || t >= 1 - 1e-9 || u <= 1e-9 || u >= 1 - 1e-9) return null;
+  return { t, u, x: a.x + t * d1x, y: a.y + t * d1y };
+}
+
+function ringBBox(ring) {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of ring) {
+    if (p.x < minX) minX = p.x;
+    if (p.y < minY) minY = p.y;
+    if (p.x > maxX) maxX = p.x;
+    if (p.y > maxY) maxY = p.y;
+  }
+  return { minX, minY, maxX, maxY };
+}
+
+function bboxesOverlap(a, b) {
+  return a.minX <= b.maxX && b.minX <= a.maxX && a.minY <= b.maxY && b.minY <= a.maxY;
+}
+
+// Убрать подряд идущие дубликаты и коллинеарные середины.
+function cleanupRing(ring) {
+  if (!ring || ring.length < 3) return [];
+  const EPS2 = 1e-16;
+  const dedup = [];
+  for (const p of ring) {
+    const last = dedup[dedup.length - 1];
+    if (!last || (p.x - last.x) ** 2 + (p.y - last.y) ** 2 > EPS2) {
+      dedup.push({ x: p.x, y: p.y });
+    }
+  }
+  if (dedup.length >= 2) {
+    const f = dedup[0], l = dedup[dedup.length - 1];
+    if ((f.x - l.x) ** 2 + (f.y - l.y) ** 2 <= EPS2) dedup.pop();
+  }
+  if (dedup.length < 3) return [];
+
+  const out = [];
+  for (let i = 0; i < dedup.length; i++) {
+    const prev = dedup[(i - 1 + dedup.length) % dedup.length];
+    const cur = dedup[i];
+    const next = dedup[(i + 1) % dedup.length];
+    const cross =
+      (cur.x - prev.x) * (next.y - cur.y) - (cur.y - prev.y) * (next.x - cur.x);
+    if (Math.abs(cross) > 1e-14) out.push(cur);
+  }
+  return out.length >= 3 ? out : dedup;
+}
+
+// Озеро внутри суши без пересечений: соединяем кольца
+// keyhole-мостом (двойное ребро между ближайшими вершинами).
+function bridgeHole(land, water) {
+  let best = null;
+  for (let i = 0; i < land.length; i++) {
+    for (let j = 0; j < water.length; j++) {
+      const d = (land[i].x - water[j].x) ** 2 + (land[i].y - water[j].y) ** 2;
+      if (!best || d < best.d) best = { d, i, j };
+    }
+  }
+  const { i, j } = best;
+  const ring = [];
+  for (let k = 0; k <= i; k++) ring.push(land[k]);
+  for (let k = 0; k <= water.length; k++) {
+    ring.push(water[(j - k % water.length + water.length * 2) % water.length]);
+  }
+  for (let k = i; k < land.length; k++) ring.push(land[k]);
+  return cleanupRing(ring);
+}
+
+// Вычитание одного водного кольца из одного кольца суши.
+// Возвращает { touched, rings: [...] }.
+function subtractRingByWater(landIn, waterIn) {
+  const land = ensureRingCCW(landIn.slice());
+  const water = ensureRingCCW(waterIn.slice());
+
+  if (!bboxesOverlap(ringBBox(land), ringBBox(water))) {
+    return { touched: false, rings: [landIn] };
+  }
+
+  // 1. Строгие пересечения рёбер.
+  const xs = [];
+  for (let li = 0; li < land.length; li++) {
+    const a = land[li], b = land[(li + 1) % land.length];
+    for (let wi = 0; wi < water.length; wi++) {
+      const c = water[wi], d = water[(wi + 1) % water.length];
+      const hit = segSegParam(a, b, c, d);
+      if (hit) xs.push({ li, lt: hit.t, wi, wt: hit.u, x: hit.x, y: hit.y });
+    }
+  }
+
+  if (!xs.length) {
+    if (pointInPolygon(land[0], water)) return { touched: true, rings: [] };
+    if (pointInPolygon(water[0], land)) {
+      const bridged = bridgeHole(land, water);
+      return bridged.length >= 3
+        ? { touched: true, rings: [bridged] }
+        : { touched: false, rings: [landIn] };
+    }
+    return { touched: false, rings: [landIn] };
+  }
+
+  // 2. Расширенные кольца: вершины + точки пересечений по ходу обхода.
+  xs.forEach((x, i) => (x.id = i));
+
+  const buildAug = (ring, edgeKey, tKey) => {
+    const byEdge = new Map();
+    for (const x of xs) {
+      const k = x[edgeKey];
+      if (!byEdge.has(k)) byEdge.set(k, []);
+      byEdge.get(k).push(x);
+    }
+    const seq = [];
+    for (let i = 0; i < ring.length; i++) {
+      seq.push({ x: ring[i].x, y: ring[i].y, isX: false, xId: -1 });
+      const group = byEdge.get(i);
+      if (group) {
+        group.sort((p, q) => p[tKey] - q[tKey]);
+        for (const g of group) seq.push({ x: g.x, y: g.y, isX: true, xId: g.id });
+      }
+    }
+    return seq;
+  };
+
+  const landSeq = buildAug(land, "li", "lt");
+  const waterSeq = buildAug(water, "wi", "wt");
+
+  const landXPos = new Array(xs.length).fill(-1);
+  const waterXPos = new Array(xs.length).fill(-1);
+  landSeq.forEach((it, i) => { if (it.isX) landXPos[it.xId] = i; });
+  waterSeq.forEach((it, i) => { if (it.isX) waterXPos[it.xId] = i; });
+
+  // 3. Классификация вершин суши: внутри воды?
+  const landInside = landSeq.map(it =>
+    it.isX ? false : pointInPolygon({ x: it.x, y: it.y }, water)
+  );
+
+  // 4. Обход: суша вперёд, вода назад; на X — переключение кольца.
+  const outputs = [];
+  const usedLand = new Array(landSeq.length).fill(false);
+  const MAX_STEPS = (landSeq.length + waterSeq.length) * 4 + 64;
+
+  for (let s = 0; s < landSeq.length; s++) {
+    if (landSeq[s].isX || usedLand[s] || landInside[s]) continue;
+
+    const ring = [];
+    let onLand = true;
+    let pos = s;
+    let guard = 0;
+    let closed = false;
+
+    while (guard++ < MAX_STEPS) {
+      if (onLand) {
+        if (pos === s && ring.length > 0) { closed = true; break; }
+        const item = landSeq[pos];
+        usedLand[pos] = true;
+        ring.push({ x: item.x, y: item.y });
+        if (item.isX) {
+          pos = waterXPos[item.xId];
+          // ИЗМЕНЕНО (фикс теста): сразу шагаем назад мимо X,
+          // иначе обход залипает на стыке колец.
+          pos = (pos - 1 + waterSeq.length) % waterSeq.length;
+          onLand = false;
+        } else {
+          pos = (pos + 1) % landSeq.length;
+        }
+      } else {
+        const item = waterSeq[pos];
+        if (item.isX) {
+          // ИЗМЕНЕНО (фикс теста): X-точку добавляем в кольцо
+          // перед возвратом на сушу, иначе теряется угол берега.
+          ring.push({ x: item.x, y: item.y });
+          pos = landXPos[item.xId];
+          onLand = true;
+          pos = (pos + 1) % landSeq.length;
+        } else {
+          ring.push({ x: item.x, y: item.y });
+          pos = (pos - 1 + waterSeq.length) % waterSeq.length;
+        }
+      }
+    }
+
+    if (!closed) {
+      // Не сошёлся обход — безопасный отказ: провинцию не трогаем.
+      throw new Error("subtract: обход не замкнулся");
+    }
+
+    const clean = cleanupRing(ring);
+    if (clean.length >= 3 && Math.abs(signedRingArea(clean)) > 1e-9) {
+      outputs.push(clean);
+    }
+  }
+
+  if (!outputs.length) {
+    // Вся суша классифицирована как вода при наличии пересечений —
+    // вырожденный случай; считаем провинцию затопленной.
+    return { touched: true, rings: [] };
+  }
+
+  return { touched: true, rings: outputs.map(r => ensureRingCCW(r)) };
+}
+
+// Вычитание всех водных колец из суши.
+// null — вода не задела; [] — затоплена полностью; [...] — фрагменты.
+function subtractWaterFromLand(landIn, waterRings) {
+  let rings = [landIn];
+  let touched = false;
+
+  for (const w of waterRings) {
+    const next = [];
+    for (const ring of rings) {
+      const res = subtractRingByWater(ring, w);
+      if (res.touched) touched = true;
+      next.push(...res.rings);
+    }
+    rings = next;
+    if (!rings.length) break;
+  }
+
+  return touched ? rings : null;
+}
+
+// ============================================================
+//  ИЗМЕНЕНО: применение кисти (Enter / кнопка).
+// ============================================================
+function commitWaterBrush() {
+  if (mode !== "waterbrush" || !waterMaskHasPaint) return;
+
+  // 1. Клетки маски.
+  const cells = [];
+  for (let row = 0; row < WATER_GRID; row++) {
+    for (let col = 0; col < WATER_GRID; col++) {
+      if (waterMask[row * WATER_GRID + col]) cells.push({ col, row });
+    }
+  }
+
+  const MIN_CELLS = 6;
+  if (cells.length < MIN_CELLS) {
+    statusEl.textContent = "💧 Мазок слишком мал — увеличьте радиус или длину штриха";
+    statusEl.className = "";
+    return;
+  }
+
+  // 2. Контуры → гладкие кольца.
+  const loops = buildAllBoundaryLoops(cells, WATER_GRID);
+  const MIN_AREA = 1e-6;
+  const waterRings = [];
+  for (const loop of loops) {
+    let ring = simplifyPolygon(loop, 0.0008);
+    ring = chaikinClosed(ring, 1);
+    ring = cleanupRing(ring);
+    if (ring.length >= 3 && Math.abs(signedRingArea(ring)) >= MIN_AREA) {
+      waterRings.push(ring);
+    }
+  }
+
+  if (!waterRings.length) {
+    statusEl.textContent = "💧 Не удалось построить береговую линию";
+    statusEl.className = "";
+    return;
+  }
+
+  pushUndo();
+
+  // 3. Суша режется по берегу.
+  let splitCount = 0, drownedCount = 0, failedCount = 0;
+  const rebuilt = [];
+  const changedProvs = [];
+
+  for (const prov of provinces) {
+    if (prov.type !== "land") { rebuilt.push(prov); continue; }
+
+    const land = getProvinceVertices(prov);
+    if (land.length < 3) { rebuilt.push(prov); continue; }
+
+    let fragments;
+    try {
+      fragments = subtractWaterFromLand(land, waterRings);
+    } catch (err) {
+      console.warn("💧 Кисть воды: не удалось разрезать провинцию", prov.id, err);
+      failedCount++;
+      rebuilt.push(prov);
+      continue;
+    }
+
+    if (fragments === null) { rebuilt.push(prov); continue; }
+    if (fragments.length === 0) { drownedCount++; continue; }
+
+    if (fragments.length > 1) splitCount++;
+
+    fragments.forEach((ring, i) => {
+      if (i === 0) {
+        prov.vertices = ring;
+        prov.vertexIds = [];
+        rebuilt.push(prov);
+        changedProvs.push(prov);
+      } else {
+        const np = {
+          id: nextProvinceId++,
+          type: "land",
+          vertexIds: [],
+          vertices: ring,
+          properties: { ...(prov.properties || {}) },
+        };
+        rebuilt.push(np);
+        changedProvs.push(np);
+      }
+    });
+  }
+  provinces = rebuilt;
+
+  // 4. Водные провинции из контуров мазка.
+  let added = 0;
+  const newWaterProvs = [];
+  for (const ring of waterRings) {
+    const wp = {
+      id: nextProvinceId++,
+      type: "water",
+      vertexIds: [],
+      vertices: ensureRingCCW(ring.slice()),
+      properties: { name: "Вода", owner: 0 },
+    };
+    provinces.push(wp);
+    newWaterProvs.push(wp);
+    added++;
+  }
+
+  // 5. Общие вершины для новой геометрии (берег станет общими
+  // точками воды и суши — можно тянуть после материализации).
+  try {
+    materializeProvinceVertices([...changedProvs, ...newWaterProvs]);
+  } catch (err) {
+    console.warn("💧 Материализация вершин не удалась (не критично)", err);
+  }
+
+  clearWaterMask();
+  statusEl.textContent =
+    `💧 Вода: +${added}, разрезано: ${splitCount}, затоплено: ${drownedCount}` +
+    (failedCount ? `, ошибок: ${failedCount}` : "");
+  statusEl.className = "active";
+  updateObjectList();
+  redraw();
+}
+
+// Привязка управления кистью.
+document.getElementById("waterBrushRadius").addEventListener("input", (e) => {
+  document.getElementById("waterBrushRadiusVal").textContent = e.target.value;
+});
+document.getElementById("waterBrushApplyBtn").addEventListener("click", () => {
+  commitWaterBrush();
+});
+document.getElementById("waterBrushClearBtn").addEventListener("click", () => {
+  clearWaterMask();
+  updateStatus();
+  redraw();
+});
+
+// ============================================================
 //  РЕЖИМЫ
 // ============================================================
 function setMode(newMode) {
@@ -2174,6 +2699,12 @@ function setMode(newMode) {
 
   mode = newMode;
   selectedObjects = [];
+  isWaterPainting = false;
+  lastWaterDab = null;
+
+  // ИЗМЕНЕНО: панель кисти воды видна только в её режиме.
+  const wbc = document.getElementById("waterBrushControls");
+  if (wbc) wbc.style.display = (mode === "waterbrush") ? "block" : "none";
   currentPolyline = [];
   currentPolygon = [];
   tracePoints = [];
@@ -2212,6 +2743,11 @@ function updateStatus() {
       ? `🟩 Суша: ${currentPolygon.length} точек — Enter: завершить`
       : "🟩 Суша: кликните для первой точки";
     statusEl.className = currentPolygon.length ? "active" : "";
+  } else if (mode === "waterbrush") {
+    statusEl.textContent = waterMaskHasPaint
+      ? "💧 Штрих готов — Enter: применить, Esc: очистить"
+      : "💧 Зажмите ЛКМ и красьте воду";
+    statusEl.className = waterMaskHasPaint ? "active" : "";
   } else {
     statusEl.textContent = `⏸️ Режим: ${mode}${getSelectionCountText()}`;
     statusEl.className = "";
@@ -2704,6 +3240,36 @@ function redraw() {
     }
   }
 
+  // ===== ИЗМЕНЕНО: превью кисти воды (растровая маска) =====
+  if (waterMaskHasPaint) {
+    const tl = worldToScreen(0, 0);
+    const br = worldToScreen(1, 1);
+    ctx.save();
+    ctx.drawImage(waterMaskCanvas, tl.x, tl.y, br.x - tl.x, br.y - tl.y);
+    ctx.restore();
+  }
+
+  // ===== ИЗМЕНЕНО: круг-курсор кисти воды =====
+  if (mode === "waterbrush") {
+    const rect2 = canvas.getBoundingClientRect();
+    const { x: mwx, y: mwy } = screenToWorld(
+      lastMouseX - rect2.left,
+      lastMouseY - rect2.top
+    );
+    const rWorld = getWaterBrushRadiusCells() / WATER_GRID;
+    const c0 = worldToScreen(mwx, mwy);
+    const c1 = worldToScreen(mwx + rWorld, mwy);
+    const radPx = Math.abs(c1.x - c0.x);
+    ctx.save();
+    ctx.strokeStyle = "rgba(120, 190, 255, 0.9)";
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    ctx.arc(c0.x, c0.y, radPx, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+
   // ===== ДОРОГИ =====
   for (const road of roads) {
     if (road.pointIds.length < 2) continue;
@@ -2985,6 +3551,15 @@ canvas.addEventListener("pointerdown", (e) => {
   const sy = e.clientY - rect.top;
   const { x: wx, y: wy } = screenToWorld(sx, sy);
 
+  if (mode === "waterbrush") {
+    isWaterPainting = true;
+    lastWaterDab = { x: wx, y: wy };
+    paintWaterDab(wx, wy);
+    updateStatus();
+    redraw();
+    return;
+  }
+
   if (mode === "province_paint") {
     startProvincePaint(wx, wy);
     return;
@@ -3105,6 +3680,13 @@ canvas.addEventListener("pointermove", (e) => {
     return;
   }
 
+  if (mode === "waterbrush" && isWaterPainting) {
+    paintWaterLine(lastWaterDab.x, lastWaterDab.y, wx, wy);
+    lastWaterDab = { x: wx, y: wy };
+    redraw();
+    return;
+  }
+
   if (mode === "province_paint" && isPaintingProvince) {
     continueProvincePaint(wx, wy);
     return;
@@ -3181,6 +3763,13 @@ window.addEventListener("pointerup", (e) => {
     return;
   }
 
+  if (mode === "waterbrush") {
+    isWaterPainting = false;
+    lastWaterDab = null;
+    updateStatus();
+    return;
+  }
+
   if (mode === "province_paint" && isPaintingProvince) {
     finishProvincePaint();
     return;
@@ -3231,8 +3820,8 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  if (e.key >= '1' && e.key <= '8') {
-    const modes = ['select', 'road', 'rail', 'river', 'land', 'trace', 'province_paint', 'connect'];
+  if (e.key >= '1' && e.key <= '9') {
+    const modes = ['select', 'road', 'rail', 'river', 'land', 'trace', 'province_paint', 'connect', 'waterbrush'];
     const idx = parseInt(e.key) - 1;
     if (modes[idx]) setMode(modes[idx]);
     e.preventDefault();
@@ -3240,6 +3829,13 @@ window.addEventListener("keydown", (e) => {
   }
 
   if (e.key === "Escape") {
+    if (mode === "waterbrush" && waterMaskHasPaint) {
+      clearWaterMask();
+      updateStatus();
+      redraw();
+      e.preventDefault();
+      return;
+    }
     if (mode === "trace" && isTracing) { finishTrace(); e.preventDefault(); return; }
     if (mode === "province_paint" && isPaintingProvince) { finishProvincePaint(); e.preventDefault(); return; }
     if ((mode === "road" || mode === "rail" || mode === "river") && currentPolyline.length) {
@@ -3272,6 +3868,12 @@ window.addEventListener("keydown", (e) => {
     updateStatus();
     updateObjectList();
     redraw();
+    e.preventDefault();
+    return;
+  }
+
+  if (e.key === "Enter" && mode === "waterbrush") {
+    commitWaterBrush();
     e.preventDefault();
     return;
   }
