@@ -1,4 +1,6 @@
 import { UNIT_TYPES } from "../entities/Unit.js";
+import { BALANCE } from "../core/GameState.js";
+import { fmtCompact } from "./format.js";
 
 export default class FactionPanel {
   constructor(game) {
@@ -77,10 +79,21 @@ export default class FactionPanel {
 
     this.overlay.classList.add("visible");
     this.panel.classList.add("visible");
+
+    // ИЗМЕНЕНО: автообновление раз в секунду, пока открыта
+    // (пул, дата и доходы меняются постоянно).
+    if (this._refreshTimer) clearInterval(this._refreshTimer);
+    this._refreshTimer = setInterval(() => {
+      if (this.isVisible) this.render();
+    }, 1000);
   }
 
   hide() {
     this.isVisible = false;
+    if (this._refreshTimer) {
+      clearInterval(this._refreshTimer);
+      this._refreshTimer = null;
+    }
     this.overlay.classList.remove("visible");
     this.panel.classList.remove("visible");
   }
@@ -100,21 +113,25 @@ export default class FactionPanel {
     }
 
     // ---- Считаем суммарные показатели ----
-    // ИЗМЕНЕНО: единая казна — весь доход городов целиком.
+    // ИЗМЕНЕНО: единая казна — весь доход городов целиком,
+    // включая золото специализаций. Значения недельные
+    // (экономический цикл = ECONOMY_TICK_DAYS дней).
+    const TICK = BALANCE.ECONOMY_TICK_DAYS;
     let totalCityIncome = 0;
     let totalPopulation = 0;
     let cityCount = 0;
 
     for (const city of game.cities) {
       if (city.owner !== pid) continue;
-      totalCityIncome += game.getCityIncome(city);
+      totalCityIncome += game.getCityIncome(city) * TICK;
+      if (game.getCityResourceProduction) {
+        totalCityIncome += game.getCityResourceProduction(city).gold * TICK;
+      }
       totalPopulation += city.population || 0;
       cityCount++;
     }
 
-    // Доход провинций: начисляется за ЛЮБУЮ свою провинцию (включая
-    // водные — так работает updateEconomy), поэтому считаем все.
-    // Для статистики территории воду отдельно не считаем.
+    // Доход провинций (только суша — так работает updateEconomy).
     let provinceIncome = 0;
     let landOwned = 0;
     let landTotal = 0;
@@ -124,8 +141,9 @@ export default class FactionPanel {
         if (prov.owner === pid) landOwned++;
       }
       if (prov.owner !== pid) continue;
+      if (prov.type === "water") continue;
       if (!prov.vertices || prov.vertices.length < 3) continue;
-      provinceIncome += 5;
+      provinceIncome += 5 * TICK;
     }
 
     // Юниты фракции.
@@ -133,8 +151,8 @@ export default class FactionPanel {
       (u) => u.owner === pid && u.isAlive()
     );
 
-    // Содержание юнитов.
-    const upkeep = aliveUnits.length;
+    // Содержание юнитов (недельное).
+    const upkeep = aliveUnits.length * TICK;
 
     // Чистый доход казны.
     const netTreasury = totalCityIncome + provinceIncome - upkeep;
@@ -149,11 +167,21 @@ export default class FactionPanel {
       ? game.getDraftPolicy(pid)
       : 'city';
 
+    // ИЗМЕНЕНО: данные мобилизации и пула резервистов (v2).
+    const reserve = game.getReserveInfo
+      ? game.getReserveInfo(pid)
+      : { target: 0, mobilized: 0, pool: 0, serving: 0, totalPopulation: 0, incomePenalty: 0 };
+
+    // ИЗМЕНЕНО: блок «Призыв» показываем только для старой системы ('local').
+    const isLocalManpower = BALANCE.MANPOWER_SYSTEM === 'local';
+    const mobilizedPeople = Math.round(reserve.mobilized * reserve.totalPopulation);
+    const incomePenaltyPct = (reserve.incomePenalty * 100).toFixed(0);
+
     // ---- Армия: состав по типам и статусы ----
     const typeCounts = {};
     let moving = 0;
     let fighting = 0;
-    let reserve = 0;
+    let idleReserve = 0;
 
     for (const u of aliveUnits) {
       const t = u.type || u.role || "infantry";
@@ -161,7 +189,7 @@ export default class FactionPanel {
 
       if (u.state === "moving") moving++;
       else if (u.state === "fighting") fighting++;
-      else reserve++;
+      else idleReserve++;
     }
 
     const TYPE_ICONS = {
@@ -209,8 +237,8 @@ export default class FactionPanel {
           <span class="value">${capital.garrison} форм.</span>
         </div>
         <div class="faction-stat">
-          <span class="label">💰 Доход</span>
-          <span class="value faction-positive">+${game.getCityIncome(capital)}💰</span>
+          <span class="label">💰 Доход (в неделю)</span>
+          <span class="value faction-positive">+${game.getCityIncome(capital) * TICK}💰</span>
         </div>`;
     } else if (capital) {
       capitalHtml = `
@@ -244,7 +272,7 @@ export default class FactionPanel {
 
         <div class="faction-stat faction-stat-total">
           <span class="label">📋 Статус</span>
-          <span class="value">🥾 ${moving} · ⚔️ ${fighting} · 🏕️ ${reserve}</span>
+          <span class="value">🥾 ${moving} · ⚔️ ${fighting} · 🏕️ ${idleReserve}</span>
         </div>
         <div class="faction-slider-hint" style="margin-top:4px;">
           🥾 на марше · ⚔️ в бою · 🏕️ в резерве
@@ -266,7 +294,47 @@ export default class FactionPanel {
 
         <div class="faction-stat">
           <span class="label">👥 Население</span>
-          <span class="value">${Math.floor(totalPopulation).toLocaleString("ru-RU")}</span>
+          <span class="value">${fmtCompact(totalPopulation)}</span>
+        </div>
+      </div>
+
+      <!-- ИЗМЕНЕНО: секция мобилизации (mobilization v2) -->
+      <div class="faction-section">
+        <div class="faction-section-title">🎖️ Мобилизация</div>
+
+        <div class="faction-slider-block">
+          <div class="faction-slider-label">
+            <span>Целевая мобилизация</span>
+            <span id="mobilizationValue">${Math.round(reserve.target * 100)}%</span>
+          </div>
+          <input
+            type="range"
+            id="mobilizationSlider"
+            min="0"
+            max="30"
+            step="1"
+            value="${Math.round(reserve.target * 100)}"
+          />
+        </div>
+
+        <div class="faction-stat">
+          <span class="label">🪖 Мобилизовано</span>
+          <span class="value">${Math.round(reserve.mobilized * 100)}% (${fmtCompact(mobilizedPeople)})</span>
+        </div>
+
+        <div class="faction-stat">
+          <span class="label">📦 Резерв</span>
+          <span class="value">${fmtCompact(reserve.pool)}</span>
+        </div>
+
+        <div class="faction-stat">
+          <span class="label">⚔️ На службе</span>
+          <span class="value">${fmtCompact(reserve.serving)}</span>
+        </div>
+
+        <div class="faction-stat">
+          <span class="label">📉 Штраф к доходу</span>
+          <span class="value faction-negative">−${incomePenaltyPct}%</span>
         </div>
       </div>
 
@@ -275,7 +343,7 @@ export default class FactionPanel {
 
         <div class="faction-stat">
           <span class="label">💵 Казна фракции</span>
-          <span class="value">${Math.floor(game.playerGold)}💰</span>
+          <span class="value">${fmtCompact(Math.floor(game.playerGold))}💰</span>
         </div>
 
         <div class="faction-stat">
@@ -296,7 +364,7 @@ export default class FactionPanel {
         <div class="faction-stat faction-stat-total">
           <span class="label">📈 Чистый доход казны</span>
           <span class="value ${netTreasury >= 0 ? "faction-positive" : "faction-negative"}">
-            ${netTreasury >= 0 ? "+" : ""}${netTreasury}💰 / цикл
+            ${netTreasury >= 0 ? "+" : ""}${netTreasury}💰 / неделю
           </span>
         </div>
 
@@ -304,7 +372,8 @@ export default class FactionPanel {
           🏛️ Единая казна: весь доход идёт в общую казну, все траты — из неё.
         </div>
 
-        <!-- ИЗМЕНЕНО: блок призыва -->
+        <!-- ИЗМЕНЕНО: блок призыва — только для старой системы ('local'). -->
+        ${isLocalManpower ? `
         <div class="faction-policy-block">
           <div class="faction-slider-label">
             <span>🎖️ Призыв</span>
@@ -335,7 +404,7 @@ export default class FactionPanel {
               Центр
             </label>
           </div>
-        </div>
+        </div>` : ''}
       </div>
 
       <div class="faction-section faction-placeholder">
@@ -361,7 +430,25 @@ export default class FactionPanel {
   // ОБРАБОТЧИКИ
   // ============================================================
   _bindControls() {
-    // ИЗМЕНЕНО: обработчики радио «Призыв».
+    // ИЗМЕНЕНО: ползунок мобилизации (mobilization v2).
+    const mobSlider = this.content.querySelector("#mobilizationSlider");
+    if (mobSlider) {
+      mobSlider.addEventListener("input", () => {
+        const pct = Number(mobSlider.value);
+        const label = this.content.querySelector("#mobilizationValue");
+        if (label) label.textContent = pct + "%";
+      });
+
+      mobSlider.addEventListener("change", () => {
+        const pct = Number(mobSlider.value);
+        if (this.game.setMobilization) {
+          this.game.setMobilization(this.game.playerId, pct / 100);
+        }
+        console.log(`🎖️ Мобилизация: ${pct}%`);
+      });
+    }
+
+    // ИЗМЕНЕНО: обработчики радио «Призыв» (только для системы 'local').
     document.querySelectorAll('input[name="draftPolicy"]').forEach(radio => {
       if (this.game.getDraftPolicy) {
         radio.checked = (this.game.getDraftPolicy(this.game.playerId) === radio.value);

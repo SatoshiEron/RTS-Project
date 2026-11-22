@@ -1120,6 +1120,9 @@
     <span id="speedDisplay">1.0x</span>
     <button id="btnFaster" title="Ускорить">+</button>
     <button id="btnPause" title="Пауза">⏸</button>
+    <!-- ИЗМЕНЕНО: игровая дата (mobilization v2). -->
+    <span id="dateDisplay" title="Игровая дата"
+          style="margin-left:10px;min-width:82px;text-align:center;font-family:Consolas,monospace;font-size:13px;font-weight:600;color:#a3b8ff;">01.01.1936</span>
   </div>
 
   <div id="diplomacyPanel">
@@ -1215,6 +1218,7 @@
     import UnitPanel from "./js/ui/UnitPanel.js";
     import VictoryPanel from "./js/ui/VictoryPanel.js";
     import FactionPanel from "./js/ui/FactionPanel.js";
+    import { fmtCompact } from "./js/ui/format.js";
     import GameState from "./js/core/GameState.js";
     import Renderer from "./js/core/Renderer.js";
     import InputHandler from "./js/core/InputHandler.js";
@@ -1233,6 +1237,9 @@
 
     const aiGoldAmount = document.getElementById("aiGoldAmount");
     const aiGoldChange = document.getElementById("aiGoldChange");
+
+    // ИЗМЕНЕНО: игровая дата (mobilization v2).
+    const dateDisplay = document.getElementById("dateDisplay");
 
     const btnSlower = document.getElementById("btnSlower");
     const btnFaster = document.getElementById("btnFaster");
@@ -1381,27 +1388,27 @@
       }
 
       if (goldAmount) {
-        goldAmount.textContent = Math.floor(game.playerGold);
+        goldAmount.textContent = fmtCompact(game.playerGold);
       }
 
-      if (oreAmount) oreAmount.textContent = Math.floor(game.playerOre || 0);
-      if (goodsAmount) goodsAmount.textContent = Math.floor(game.playerGoods || 0);
-      if (foodAmount) foodAmount.textContent = Math.floor(game.playerFood || 0);
+      if (oreAmount) oreAmount.textContent = fmtCompact(game.playerOre || 0);
+      if (goodsAmount) goodsAmount.textContent = fmtCompact(game.playerGoods || 0);
+      if (foodAmount) foodAmount.textContent = fmtCompact(game.playerFood || 0);
 
       if (goldChange) {
         const net = game.getNetIncome(game.playerId);
         const sign = net.net >= 0 ? '+' : '';
         goldChange.textContent = `${sign}${net.net}`;
         goldChange.style.color = net.net >= 0 ? '#66cc88' : '#ff6666';
-        // ИЗМЕНЕНО: разбивка чистого дохода по наведению.
+        // ИЗМЕНЕНО: разбивка чистого дохода по наведению (недельный цикл).
         goldChange.title =
           `Доход городов и провинций: +${net.income}\n` +
           `Содержание юнитов: −${net.upkeep}\n` +
-          `Итого: ${net.net} за цикл`;
+          `Итого: ${net.net} за неделю`;
       }
 
       if (aiGoldAmount) {
-        aiGoldAmount.textContent = Math.floor(game.aiGold);
+        aiGoldAmount.textContent = fmtCompact(game.aiGold);
       }
 
       if (aiGoldChange) {
@@ -1433,6 +1440,13 @@
       const stats = game.getStats();
       infoPanel.textContent =
         `📍 ${stats.points} точек | 🛤️ ${stats.roads} дорог | 🏛️ ${stats.provinces} провинций | 🏙️ ${game.cities.length} городов`;
+
+      // ИЗМЕНЕНО: игровая дата каждый кадр.
+      if (dateDisplay && typeof game.getGameDate === "function") {
+        const d = game.getGameDate();
+        const pad = (n) => String(n).padStart(2, "0");
+        dateDisplay.textContent = `${pad(d.day)}.${pad(d.month)}.${d.year}`;
+      }
     }
 
     function updateSpeedControls() {

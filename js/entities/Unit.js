@@ -172,6 +172,11 @@ export default class Unit {
 
     this.lastCityId = null;
     this.gameRef = null;
+
+    // ИЗМЕНЕНО: численность формирования (mobilization v2).
+    // maxMen/men заполняет GameState.spawnUnit (100 чел. на очко призыва).
+    this.maxMen = 0;
+    this.men = 0;
   }
 
   // ============================================================
@@ -329,13 +334,27 @@ export default class Unit {
     }
 
     // ИЗМЕНЕНО: регенерация HP с учётом regenRate.
+    // Пополнение тратит людей из пула резервистов (mobilization v2).
     if (game && this.isAlive()) {
       const cityHere = game.getCityAt(this.x, this.y, 0.02);
 
       if (cityHere && cityHere.owner === this.owner) {
         const baseRate = 2;
         const rate = baseRate * (this.regenRate || 1.0);
-        this.hp = Math.min(this.maxHp, this.hp + rate * dt);
+        let heal = rate * dt;
+
+        // 1 HP = maxMen/maxHp человек; пустой пул — лечения нет.
+        if (game.isReserveSystem && game.isReserveSystem() && this.maxMen > 0) {
+          const menPerHp = this.maxMen / this.maxHp;
+          const spent = game.spendReserve(this.owner, heal * menPerHp);
+          heal = spent / menPerHp;
+          // Фикс: пополнившиеся резервисты сразу отражаются в составе.
+          this.men = Math.min(this.maxMen, (this.men || 0) + spent);
+        }
+
+        if (heal > 0) {
+          this.hp = Math.min(this.maxHp, this.hp + heal);
+        }
       }
     }
   }
@@ -549,7 +568,20 @@ export default class Unit {
         this.movementCommandActive = false;
 
         const healRate = 8 * (this.regenRate || 1.0);
-        this.hp = Math.min(this.maxHp, this.hp + healRate * dt);
+        let heal = healRate * dt;
+
+        // ИЗМЕНЕНО: пополнение в городе тратит пул резервистов.
+        if (game.isReserveSystem && game.isReserveSystem() && this.maxMen > 0) {
+          const menPerHp = this.maxMen / this.maxHp;
+          const spent = game.spendReserve(this.owner, heal * menPerHp);
+          heal = spent / menPerHp;
+          // Фикс: пополнившиеся резервисты сразу отражаются в составе.
+          this.men = Math.min(this.maxMen, (this.men || 0) + spent);
+        }
+
+        if (heal > 0) {
+          this.hp = Math.min(this.maxHp, this.hp + heal);
+        }
 
         if (this.hp >= this.maxHp * 0.7) {
           this.endRetreat();

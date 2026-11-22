@@ -1,5 +1,6 @@
 import Unit from "../entities/Unit.js";
 import { UNIT_TYPES } from "../entities/Unit.js";
+import { fmtCompact } from "./format.js";
 
 export default class CityPanel {
   constructor(game) {
@@ -246,7 +247,7 @@ export default class CityPanel {
 
         <div class="city-stat">
           <span class="label">👨‍👩‍👧‍👦 Население</span>
-          <span class="value">${population.toLocaleString()}</span>
+          <span class="value">${fmtCompact(population)}</span>
         </div>
 
         <!-- ИЗМЕНЕНО (Шаг 1): рабочая сила города -->

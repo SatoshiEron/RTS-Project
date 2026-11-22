@@ -94,40 +94,57 @@ export default class EconomyAI {
     const budget = this.getBudgetForCity(city);
     if (budget.amount < AIConfig.RECRUIT_THRESHOLD) return;
 
-    const type = this.getPreferredUnitType(city);
+    // ИЗМЕНЕНО: каскад кандидатов. Если на предпочтительный тип не хватает
+    // ресурсов — пробуем более дешёвые, иначе ИИ (напр. с заводом, но без
+    // шахты) не может нанимать вовсе.
+    const preferred = this.getPreferredUnitType(city);
+    const candidates = [preferred, 'artillery', 'motorized', 'infantry', 'militia']
+      .filter((t, i, arr) => arr.indexOf(t) === i)
+      .filter(t => this.game.getAvailableUnitTypes
+        ? this.game.getAvailableUnitTypes(city).includes(t)
+        : t === 'infantry');
 
-    // 1. Проверка ресурсов.
-    const stats = UNIT_TYPES[type];
-    if (stats) {
+    for (const type of candidates) {
+      const stats = UNIT_TYPES[type];
+      if (!stats) continue;
+
+      // 1. Проверка ресурсов.
       const resCheck = this.game.canAffordResources(this.game.aiId, {
         ore: stats.oreCost || 0,
         goods: stats.goodsCost || 0,
         food: stats.foodCost || 0,
       });
-      if (!resCheck.ok) return;
-    }
+      if (!resCheck.ok) continue; // пробуем более дешёвый тип
 
-    // 2. Проверка людей (ИИ — политика 'center').
-    const manpowerNeed = this.game.getRecruitManpower(type);
-    const draftPlan = this.game.planDraft(city, manpowerNeed);
-    if (!draftPlan) {
-      // Не хватает людей — ИИ ждёт.
-      return;
-    }
-
-    // 3. Найм.
-    const result = this.game.tryRecruitUnit(city, type);
-
-    if (result.ok) {
-      console.log(
-        `🤖 ИИ нанял ${result.unit.typeName} #${result.unit.id} в "${city.name}" ` +
-        `(${result.cost}💰 + ${result.manpowerSpent}👥)`
-      );
-    } else if (result.reason === 'type_not_allowed') {
-      const fallback = this.game.tryRecruitUnit(city, 'infantry');
-      if (fallback.ok) {
-        console.log(`🤖 ИИ нанял fallback: ${fallback.unit.typeName} #${fallback.unit.id}`);
+      // 2. Проверка людей. В системе 'reserve' набор идёт из пула —
+      // городской план призыва не применяется.
+      const manpowerNeed = this.game.getRecruitManpower(type);
+      if (!(this.game.isReserveSystem && this.game.isReserveSystem())) {
+        const draftPlan = this.game.planDraft(city, manpowerNeed);
+        if (!draftPlan) {
+          // Не хватает людей — ИИ ждёт.
+          return;
+        }
       }
+
+      // 3. Найм.
+      const result = this.game.tryRecruitUnit(city, type);
+
+      if (result.ok) {
+        console.log(
+          `🤖 ИИ нанял ${result.unit.typeName} #${result.unit.id} в "${city.name}" ` +
+          `(${result.cost}💰 + ${result.manpowerSpent}👥)`
+        );
+        return;
+      }
+
+      if (result.reason === 'manpower' || result.reason === 'not_enough_manpower') {
+        // Людей нет — ждём пополнения пула.
+        return;
+      }
+      if (result.reason === 'type_not_allowed') continue;
+
+      return;
     }
   }
 

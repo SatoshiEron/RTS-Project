@@ -7,7 +7,7 @@ export default class City {
     type = "city",
     provinceId = null,
     owner = 0,
-    population = 1000,
+    population = 12000,
     income = 10,
     level = 1,
     garrison = 0

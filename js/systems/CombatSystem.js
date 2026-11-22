@@ -74,7 +74,11 @@ export default class CombatSystem {
           if (a.attackTimer <= 0 && a.isAlive() && b.isAlive() && dist < aRadius) {
             const damage = Math.max(1, a.attack - b.defense);
 
+            // ИЗМЕНЕНО: учёт численности и потерь (mobilization v2).
+            this.game.lastCombatDay = this.game.gameDay;
+            const prevMen = b.men || 0;
             b.takeDamage(damage);
+            this.game.onCasualties(b, prevMen);
             a.attackTimer = this.attackCooldown;
 
             console.log(
@@ -101,7 +105,11 @@ export default class CombatSystem {
           if (b.attackTimer <= 0 && a.isAlive() && b.isAlive() && dist < bRadius) {
             const damage = Math.max(1, b.attack - a.defense);
 
+            // ИЗМЕНЕНО: учёт численности и потерь (mobilization v2).
+            this.game.lastCombatDay = this.game.gameDay;
+            const prevMen = a.men || 0;
             a.takeDamage(damage);
+            this.game.onCasualties(a, prevMen);
             b.attackTimer = this.attackCooldown;
 
             console.log(
