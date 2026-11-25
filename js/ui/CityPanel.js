@@ -1,6 +1,7 @@
 import Unit from "../entities/Unit.js";
 import { UNIT_TYPES } from "../entities/Unit.js";
 import { fmtCompact } from "./format.js";
+import { BUILDINGS, CITY_LEVEL_NAMES } from "../data/buildings.js";
 
 export default class CityPanel {
   constructor(game) {
@@ -57,6 +58,16 @@ export default class CityPanel {
     this.panel.classList.add("visible");
   }
 
+  // ИЗМЕНЕНО: режим провинции (строительство, фаза 1) — минимальный блок
+  // при клике по провинции без города.
+  showProvince(prov) {
+    if (!prov) return;
+    this.currentCity = null;
+    this.renderProvince(prov);
+    this.overlay.classList.add("visible");
+    this.panel.classList.add("visible");
+  }
+
   hide() {
     if (!this.panel.classList.contains("visible")) {
       return;
@@ -104,6 +115,7 @@ export default class CityPanel {
       `База: ${breakdown.base} (уровень ${level} × 2)\n` +
       `Население: +${breakdown.popBonus}\n` +
       `Провинция: ${breakdown.provinceMod}\n` +
+      `Постройки: ${breakdown.buildingsMod || '—'}\n` +
       `Итого: +${income}/ход — вся казна фракции`;
 
     const hp = Math.floor(city.hp || 500);
@@ -137,6 +149,37 @@ export default class CityPanel {
     const source = 'center';
 
     const budgetLabel = (src) => '🏛️ казна';
+
+    // ИЗМЕНЕНО: постройки города (строительство, фаза 1).
+    const slots = this.game.getCitySlots ? this.game.getCitySlots(city) : 2;
+    const builtIds = city.buildings || [];
+    const builtRows = builtIds
+      .map(id => (BUILDINGS[id] ? `${BUILDINGS[id].icon} ${BUILDINGS[id].name}` : id))
+      .join(' · ') || '—';
+
+    const buildingButtons = Object.entries(BUILDINGS)
+      .filter(([, b]) => b.scope === 'city')
+      .map(([id, b]) => {
+        const check = this.game.canAffordBuilding
+          ? this.game.canAffordBuilding(id, city)
+          : { ok: false, reason: 'unavailable' };
+        const effectText = this.describeEffects(b.effects);
+        const reasons = {
+          already_built: 'Уже построено',
+          no_slots: 'Нет свободных слотов',
+          not_enough_gold: `Не хватает золота (нужно ${fmtCompact(b.cost)}💰)`,
+        };
+        const disabled = !isPlayerCity || !check.ok;
+        const title = !isPlayerCity ? 'Не ваш город'
+          : check.ok ? effectText
+          : (reasons[check.reason] || check.reason);
+        return `
+          <button class="action-btn" data-building="${id}" ${disabled ? 'disabled' : ''} title="${title}">
+            ${b.icon} ${b.name} — ${fmtCompact(b.cost)}💰<br>
+            <span style="font-size:10px;color:#8892b0;">${effectText}</span>
+          </button>`;
+      })
+      .join('');
 
     // ИЗМЕНЕНО (Шаг 2): кнопки найма с ценой в людях.
     const recruitButtons = Object.keys(UNIT_TYPES).map(t => {
@@ -242,7 +285,7 @@ export default class CityPanel {
       <div class="city-panel-body">
         <div class="city-stat">
           <span class="label">🏛️ Уровень</span>
-          <span class="value">${level} / ${maxLevel}</span>
+          <span class="value">${CITY_LEVEL_NAMES[level] || level} (ур. ${level}) / ${maxLevel}</span>
         </div>
 
         <div class="city-stat">
@@ -263,7 +306,7 @@ export default class CityPanel {
 
         <div class="city-stat">
           <span class="label">⚔️ Гарнизон</span>
-          <span class="value">${garrison} юнитов</span>
+          <span class="value">${garrison + (this.game.getGarrisonBonus ? this.game.getGarrisonBonus(city) : 0)} юнитов</span>
         </div>
 
         <div class="city-stat">
@@ -305,7 +348,32 @@ export default class CityPanel {
           }
         </button>
       </div>
+
+      <!-- ИЗМЕНЕНО: секция построек (строительство, фаза 1) -->
+      <div class="city-panel-section-title">
+        🏗️ Постройки (${builtIds.length} из ${slots} слотов)
+      </div>
+
+      <div class="faction-slider-hint" style="margin:2px 0 6px;">
+        Построено: ${builtRows}
+      </div>
+
+      <div class="unit-type-grid">
+        ${buildingButtons}
+      </div>
     `;
+
+    // ИЗМЕНЕНО: обработчики кнопок построек.
+    this.content.querySelectorAll("[data-building]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.building;
+        const res = this.game.tryBuild(id, city);
+        if (!res.ok) {
+          console.warn(`🏗️ Строительство отклонено: ${res.reason}`);
+        }
+        this.render(city);
+      });
+    });
 
     if (this._boundHandler) {
       this.content.querySelectorAll("[data-action]").forEach((btn) => {
@@ -426,6 +494,106 @@ export default class CityPanel {
   }
 
   // ИЗМЕНЕНО: уведомление о нехватке средств с учётом типа.
+  // ИЗМЕНЕНО: минимальный режим провинции (строительство, фаза 1):
+  // ресурс провинции + ферма/шахта.
+  renderProvince(prov) {
+    const game = this.game;
+    const name = (prov.properties && prov.properties.name) || prov.name || `Провинция #${prov.id}`;
+
+    let ownerName = "🌿 Нейтрал";
+    let ownerClass = "neutral";
+    if (prov.owner === game.playerId) { ownerName = "👤 Игрок"; ownerClass = "player"; }
+    else if (prov.owner === game.aiId) { ownerName = "🤖 ИИ"; ownerClass = "ai"; }
+
+    const isPlayerProv = prov.owner === game.playerId;
+
+    const resources = Array.isArray(prov.resources) ? prov.resources : [];
+    const resourceLabel = resources.includes('ore') && resources.includes('fertile')
+      ? '⛏️ Руда · 🌾 Плодородная'
+      : resources.includes('ore') ? '⛏️ Руда'
+      : resources.includes('fertile') ? '🌾 Плодородная'
+      : '—';
+
+    const builtIds = prov.buildings || [];
+    const builtRows = builtIds
+      .map(id => (BUILDINGS[id] ? `${BUILDINGS[id].icon} ${BUILDINGS[id].name}` : id))
+      .join(' · ') || '—';
+
+    const buildingButtons = Object.entries(BUILDINGS)
+      .filter(([, b]) => b.scope === 'province')
+      .map(([id, b]) => {
+        const check = game.canAffordBuilding
+          ? game.canAffordBuilding(id, prov)
+          : { ok: false, reason: 'unavailable' };
+        const effectText = this.describeEffects(b.effects);
+        const reasons = {
+          already_built: 'Уже построено',
+          no_owner: isPlayerProv ? '' : 'Провинция не ваша',
+          no_resource: `В провинции нет ресурса (${b.requires === 'ore' ? 'руда' : 'плодородие'})`,
+          not_enough_gold: `Не хватает золота (нужно ${fmtCompact(b.cost)}💰)`,
+        };
+        const disabled = !isPlayerProv || !check.ok;
+        const title = check.ok ? effectText : (reasons[check.reason] || check.reason);
+        return `
+          <button class="action-btn" data-building="${id}" ${disabled ? 'disabled' : ''} title="${title}">
+            ${b.icon} ${b.name} — ${fmtCompact(b.cost)}💰<br>
+            <span style="font-size:10px;color:#8892b0;">${effectText}</span>
+          </button>`;
+      })
+      .join('');
+
+    this.content.innerHTML = `
+      <div class="city-panel-header">
+        <h2>🗺️ ${name}</h2>
+        <span class="city-owner ${ownerClass}">${ownerName}</span>
+      </div>
+
+      <div class="city-panel-body">
+        <div class="city-stat">
+          <span class="label">⛏️/🌾 Ресурс</span>
+          <span class="value">${resourceLabel}</span>
+        </div>
+      </div>
+
+      <div class="city-panel-section-title">
+        🏗️ Постройки провинции
+      </div>
+
+      <div class="faction-slider-hint" style="margin:2px 0 6px;">
+        Построено: ${builtRows}
+      </div>
+
+      <div class="unit-type-grid">
+        ${buildingButtons}
+      </div>
+    `;
+
+    this.content.querySelectorAll("[data-building]").forEach((btn) => {
+      btn.addEventListener("click", () => {
+        const id = btn.dataset.building;
+        const res = this.game.tryBuild(id, prov);
+        if (!res.ok) {
+          console.warn(`🏗️ Строительство отклонено: ${res.reason}`);
+        }
+        this.renderProvince(prov);
+      });
+    });
+  }
+
+  // ИЗМЕНЕНО: краткое описание эффектов постройки для кнопок.
+  describeEffects(effects) {
+    const parts = [];
+    if (effects.foodPerWeek) parts.push(`+${effects.foodPerWeek} 🌾/нед`);
+    if (effects.orePerWeek) parts.push(`+${effects.orePerWeek} 🪨/нед`);
+    if (effects.goodsPerWeek) parts.push(`+${effects.goodsPerWeek} 📦/нед`);
+    if (effects.incomeMult) parts.push(`+${Math.round(effects.incomeMult * 100)}% к доходу`);
+    if (effects.reserveGrowthMult) parts.push(`+${Math.round(effects.reserveGrowthMult * 100)}% прироста резерва`);
+    if (effects.recruitDiscount) parts.push(`−${Math.round(effects.recruitDiscount * 100)}% цены призыва`);
+    if (effects.hpMult) parts.push(`+${Math.round(effects.hpMult * 100)}% прочности`);
+    if (effects.garrisonBonus) parts.push(`+${effects.garrisonBonus} к гарнизону`);
+    return parts.join(', ');
+  }
+
   showInsufficientFunds(city, action, result, unitType = null) {
     let actionName = action === "recruit" ? "Найм" : "Улучшение";
     if (unitType && UNIT_TYPES[unitType]) {

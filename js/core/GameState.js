@@ -3,6 +3,12 @@ import City from "../entities/City.js";
 import CombatSystem from "../systems/CombatSystem.js";
 import AISystem from "../systems/ai/AISystem.js";
 import DiplomacySystem from "../systems/DiplomacySystem.js";
+import {
+  BUILDINGS,
+  getBuildingEffectsSum,
+  getCitySlots,
+  provinceHasResource,
+} from "../data/buildings.js";
 
 // ============================================================
 // ИЗМЕНЕНО: баланс «Время + Население + Manpower v2».
@@ -686,6 +692,8 @@ export default class GameState {
 
     for (const prov of this.map.provinces) {
       prov.owner = 0;
+      // ИЗМЕНЕНО: нормализация — у провинций всегда есть массив построек.
+      if (!Array.isArray(prov.buildings)) prov.buildings = [];
     }
 
     this.cities = [];
@@ -1175,6 +1183,12 @@ export default class GameState {
       );
     }
 
+    // ИЗМЕНЕНО: постройки города (рынок/завод) — ×(1 + Σ incomeMult).
+    const buildingsMult = 1 + getBuildingEffectsSum(city, 'incomeMult');
+    if (buildingsMult !== 1) {
+      income = Math.floor(income * buildingsMult);
+    }
+
     return income;
   }
 
@@ -1372,11 +1386,16 @@ export default class GameState {
       }
     }
 
+    // ИЗМЕНЕНО: множитель построек города (рынок/завод) — для разбивки в UI.
+    const buildingsMult = 1 + getBuildingEffectsSum(city, 'incomeMult');
+
     return {
       base,
       popBonus,
       mult,
       provinceMod,
+      buildingsMult,
+      buildingsMod: buildingsMult !== 1 ? `×${buildingsMult.toFixed(2)} (постройки)` : '—',
       income: this.getCityIncome(city),
     };
   }
@@ -1384,7 +1403,95 @@ export default class GameState {
   getRecruitCostForType(city, type) {
     const stats = UNIT_TYPES[type];
     if (!stats) return this.getRecruitCost(city);
-    return stats.cost;
+    // ИЗМЕНЕНО: казармы дают скидку −15% к призыву в этом городе.
+    const discount = city ? getBuildingEffectsSum(city, 'recruitDiscount') : 0;
+    return Math.round(stats.cost * (1 - discount));
+  }
+
+  // ============================================================
+  // ИЗМЕНЕНО: строительство, фаза 1 (каталог — js/data/buildings.js).
+  // Постройка мгновенная; время строительства — фаза 2.
+  // ============================================================
+
+  getCitySlots(city) {
+    return getCitySlots(city.level || 1);
+  }
+
+  // Сумма reserveGrowthMult по городам фракции (эффект казарм).
+  reserveGrowthMultTotal(factionId) {
+    let sum = 0;
+    for (const city of this.cities) {
+      if (city.owner === factionId) {
+        sum += getBuildingEffectsSum(city, 'reserveGrowthMult');
+      }
+    }
+    return sum;
+  }
+
+  // +N к гарнизону города от построек (укрепления).
+  getGarrisonBonus(city) {
+    return city ? getBuildingEffectsSum(city, 'garrisonBonus') : 0;
+  }
+
+  canAffordBuilding(buildingId, target) {
+    const b = BUILDINGS[buildingId];
+    if (!b) return { ok: false, reason: 'no_such_building' };
+
+    const isCity = !!(target && typeof target.level === 'number' && target.maxHp);
+
+    if (b.scope === 'city') {
+      if (!isCity) return { ok: false, reason: 'not_city' };
+      if (!target.buildings) target.buildings = [];
+      if (target.buildings.includes(buildingId)) return { ok: false, reason: 'already_built' };
+      if (target.buildings.length >= this.getCitySlots(target)) {
+        return { ok: false, reason: 'no_slots' };
+      }
+      const gold = target.owner === this.playerId ? this.playerGold : this.aiGold;
+      if (gold < b.cost) return { ok: false, reason: 'not_enough_gold', cost: b.cost, gold };
+      return { ok: true, cost: b.cost };
+    }
+
+    // scope === 'province'
+    if (isCity) return { ok: false, reason: 'not_province' };
+    if (!target || target.owner === 0 || target.owner === undefined) {
+      return { ok: false, reason: 'no_owner' };
+    }
+    if (!target.buildings) target.buildings = [];
+    if (target.buildings.includes(buildingId)) return { ok: false, reason: 'already_built' };
+    if (b.requires && !provinceHasResource(target, b.requires)) {
+      return { ok: false, reason: 'no_resource', requires: b.requires };
+    }
+    const gold = target.owner === this.playerId ? this.playerGold : this.aiGold;
+    if (gold < b.cost) return { ok: false, reason: 'not_enough_gold', cost: b.cost, gold };
+    return { ok: true, cost: b.cost };
+  }
+
+  tryBuild(buildingId, target) {
+    const check = this.canAffordBuilding(buildingId, target);
+    if (!check.ok) return { ok: false, ...check };
+
+    const b = BUILDINGS[buildingId];
+
+    // Списание из единой казны владельца.
+    if (target.owner === this.playerId) {
+      this.playerGold -= b.cost;
+    } else {
+      this.aiGold -= b.cost;
+    }
+
+    target.buildings.push(buildingId);
+
+    // Укрепления: растёт только макс. прочность; текущее hp не трогаем.
+    if (b.effects.hpMult) {
+      target.maxHp = Math.round(target.maxHp * (1 + b.effects.hpMult));
+    }
+
+    console.log(
+      `🏗️ Построено: ${b.icon} ${b.name} ` +
+      `(владелец ${target.owner === this.playerId ? '👤' : '🤖'}, −${b.cost}💰)`
+    );
+
+    return { ok: true, cost: b.cost };
   }
 
   canCityRecruitType(city, type) {
@@ -1772,6 +1879,33 @@ export default class GameState {
       }
     }
 
+    // ===== 2. ПОСТРОЙКИ (фаза 1) =====
+    // Фермы/шахты провинций и заводы городов. Значения эффектов — уже
+    // недельные, НЕ умножаем на TICK.
+    for (const prov of this.map.provinces || []) {
+      if (prov.owner !== this.playerId && prov.owner !== this.aiId) continue;
+
+      const food = getBuildingEffectsSum(prov, 'foodPerWeek');
+      const ore = getBuildingEffectsSum(prov, 'orePerWeek');
+      if (!food && !ore) continue;
+
+      if (prov.owner === this.playerId) {
+        this.playerFood += food;
+        this.playerOre += ore;
+      } else {
+        this.aiFood += food;
+        this.aiOre += ore;
+      }
+    }
+
+    for (const city of this.cities) {
+      if (city.owner !== this.playerId && city.owner !== this.aiId) continue;
+      const goods = getBuildingEffectsSum(city, 'goodsPerWeek');
+      if (!goods) continue;
+      if (city.owner === this.playerId) this.playerGoods += goods;
+      else this.aiGoods += goods;
+    }
+
     const playerUnits = this.units.filter(
       (u) => u.owner === this.playerId && u.isAlive()
     );
@@ -1827,7 +1961,9 @@ export default class GameState {
     const serving = this.servingMen(factionId);
     const targetPool = Math.max(0, eco.mobilized * totalPop - serving);
 
-    eco.reservePool += (targetPool - eco.reservePool) * BALANCE.MOBILIZATION_RATE;
+    // ИЗМЕНЕНО: казармы ускоряют прирост резервного пула ×(1 + Σ эффектов).
+    const growthMult = 1 + this.reserveGrowthMultTotal(factionId);
+    eco.reservePool += (targetPool - eco.reservePool) * BALANCE.MOBILIZATION_RATE * growthMult;
     if (eco.reservePool < 0) eco.reservePool = 0;
 
     // Созревшие раненые возвращаются в пул.
