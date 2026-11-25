@@ -200,6 +200,7 @@
       <button data-mode="province_paint" style="background:#1a3a2a;border-color:#4a9a6a;">🖌️ Провинции</button>
       <button data-mode="connect" style="background:#2a3a4a;border-color:#4a7a9a;">🔗 Соединить</button>
       <button data-mode="waterbrush" style="background:#0f2a44;border-color:#3a8aca;">💧 Кисть воды</button>
+      <button data-mode="resource" style="background:#3a2a10;border-color:#ca9a3a;">⛏️ Ресурсы</button>
     </div>
     <!-- ИЗМЕНЕНО: управление кистью воды (видно только в режиме waterbrush) -->
     <div id="waterBrushControls" style="display:none;margin-top:6px;">
@@ -211,6 +212,30 @@
       </div>
       <div class="hint">Красьте воду как в Paint. Контур мазка станет берегом,
         суша под ним разрежется, вода станет провинцией. Узкий мазок — река.</div>
+    </div>
+    <!-- Кисть ресурсов: выбор типа (видно только в режиме resource) -->
+    <div id="resourceControls" style="display:none;margin-top:6px;font-size:12px;color:#a0b0d0;">
+      <div style="margin:2px 0;color:#7ec850;">🌾 Сельское хозяйство</div>
+      <label><input type="radio" name="resType" value="fertile" checked> 🌾 Плодородие</label><br>
+      <label><input type="radio" name="resType" value="fish"> 🐟 Рыба (только вода)</label>
+      <div style="margin:4px 0 2px;color:#c0a080;">⛏️ Полезные ископаемые</div>
+      <label><input type="radio" name="resType" value="ore"> ⛏️ Руда</label><br>
+      <label><input type="radio" name="resType" value="coal"> ⚫ Уголь</label><br>
+      <label><input type="radio" name="resType" value="copper"> 🟠 Медь</label><br>
+      <label><input type="radio" name="resType" value="bauxite"> 🔴 Бокситы</label><br>
+      <label><input type="radio" name="resType" value="uranium"> ☢️ Уран</label><br>
+      <label><input type="radio" name="resType" value="gold"> 💰 Золото</label>
+      <div style="margin:4px 0 2px;color:#8a7aca;">🛢️ Энергия и природа</div>
+      <label><input type="radio" name="resType" value="oil"> 🛢️ Нефть</label><br>
+      <label><input type="radio" name="resType" value="natural_gas"> 🔥 Природный газ</label><br>
+      <label><input type="radio" name="resType" value="timber"> 🌲 Лес</label><br>
+      <label><input type="radio" name="resType" value="rubber"> 🌴 Каучук</label>
+      <div style="margin-top:4px;border-top:1px solid #2a3040;padding-top:4px;">
+        <label><input type="radio" name="resType" value="eraser"> ✖ Ластик (снять все ресурсы)</label>
+      </div>
+      <div class="hint">Тяните по провинциям — каждая получает выбранный ресурс.
+        В одной провинции может быть несколько ресурсов. 🐟 — только на воду,
+        остальные — только на сушу.</div>
     </div>
     <div id="status">⏸️ Выберите режим</div>
   </div>
@@ -556,6 +581,28 @@ let showVertices = false;
 // при применении контур маски становится берегом (провинция
 // type:"water"), а суша под мазком разрезается по берегу.
 // ============================================================
+// ============================================================
+//  КИСТЬ РЕСУРСОВ — разметка месторождений по провинциям.
+//  prov.resources: массив id (несколько ресурсов в провинции).
+//  water:true — ресурс ставится только на водные провинции.
+// ============================================================
+const RESOURCE_TYPES = [
+  { id: 'fertile',     name: 'Плодородие',    icon: '🌾', water: false },
+  { id: 'fish',        name: 'Рыба',          icon: '🐟', water: true  },
+  { id: 'ore',         name: 'Руда',          icon: '⛏️', water: false },
+  { id: 'coal',        name: 'Уголь',         icon: '⚫', water: false },
+  { id: 'copper',      name: 'Медь',          icon: '🟠', water: false },
+  { id: 'bauxite',     name: 'Бокситы',       icon: '🔴', water: false },
+  { id: 'uranium',     name: 'Уран',          icon: '☢️', water: false },
+  { id: 'gold',        name: 'Золото',        icon: '💰', water: false },
+  { id: 'oil',         name: 'Нефть',         icon: '🛢️', water: false },
+  { id: 'natural_gas', name: 'Природный газ', icon: '🔥', water: false },
+  { id: 'timber',      name: 'Лес',           icon: '🌲', water: false },
+  { id: 'rubber',      name: 'Каучук',        icon: '🌴', water: false },
+];
+let currentResource = 'fertile';
+let isResourcePainting = false;
+
 const WATER_GRID = 256;
 let waterMask = new Uint8Array(WATER_GRID * WATER_GRID);
 let waterMaskHasPaint = false;
@@ -638,6 +685,61 @@ function getProvinceAt(wx, wy) {
     if (vertices.length >= 3 && pointInPolygon({ x: wx, y: wy }, vertices)) return prov;
   }
   return null;
+}
+
+// Хит-тест для кисти ресурсов: из пересекающихся провинций нужной среды
+// (вода/суша) берём самую маленькую по bbox — озеро внутри фонового моря
+// получит рыбу себе, а не морю.
+function findResourceTarget(wx, wy, wantWater) {
+  let best = null, bestArea = Infinity;
+  for (const prov of provinces) {
+    const isW = prov.type === 'water';
+    if (isW !== wantWater) continue;
+    let vertices;
+    if (prov.vertices && prov.vertices.length >= 3) vertices = prov.vertices;
+    else if (prov.vertexIds && prov.vertexIds.length >= 3)
+      vertices = prov.vertexIds.map(id => points.find(p => p.id === id)).filter(Boolean);
+    else continue;
+    if (vertices.length < 3 || !pointInPolygon({ x: wx, y: wy }, vertices)) continue;
+    let mnx = 1, mny = 1, mxx = 0, mxy = 0;
+    for (const v of vertices) {
+      if (v.x < mnx) mnx = v.x; if (v.y < mny) mny = v.y;
+      if (v.x > mxx) mxx = v.x; if (v.y > mxy) mxy = v.y;
+    }
+    const area = (mxx - mnx) * (mxy - mny);
+    if (area < bestArea) { bestArea = area; best = prov; }
+  }
+  return best;
+}
+
+// Назначить/снять ресурс провинции под курсором.
+function applyResourceAt(wx, wy) {
+  const res = RESOURCE_TYPES.find(t => t.id === currentResource);
+  const erasing = currentResource === 'eraser';
+  let prov;
+  if (erasing) {
+    prov = findResourceTarget(wx, wy, false) || findResourceTarget(wx, wy, true);
+  } else if (res && res.water) {
+    // Водный ресурс — только там, где воду видно: если точку перекрывает
+    // суша, рыбу ставить некуда (иначе уходит в невидимое фоновое море).
+    if (findResourceTarget(wx, wy, false)) return;
+    prov = findResourceTarget(wx, wy, true);
+  } else {
+    prov = findResourceTarget(wx, wy, false);
+  }
+  if (!prov) return;
+  if (!Array.isArray(prov.resources)) prov.resources = [];
+
+  if (erasing) {
+    if (prov.resources.length) { prov.resources = []; redraw(); updateStatus(); }
+    return;
+  }
+  if (!res) return;
+  if (!prov.resources.includes(res.id)) {
+    prov.resources.push(res.id);
+    redraw();
+    updateStatus();
+  }
 }
 
 function getProvinceCenter(prov) {
@@ -2678,6 +2780,13 @@ function commitWaterBrush() {
 }
 
 // Привязка управления кистью.
+document.querySelectorAll('input[name="resType"]').forEach(r => {
+  r.addEventListener('change', () => {
+    currentResource = r.value;
+    updateStatus();
+  });
+});
+
 document.getElementById("waterBrushRadius").addEventListener("input", (e) => {
   document.getElementById("waterBrushRadiusVal").textContent = e.target.value;
 });
@@ -2705,6 +2814,9 @@ function setMode(newMode) {
   // ИЗМЕНЕНО: панель кисти воды видна только в её режиме.
   const wbc = document.getElementById("waterBrushControls");
   if (wbc) wbc.style.display = (mode === "waterbrush") ? "block" : "none";
+  const rc = document.getElementById("resourceControls");
+  if (rc) rc.style.display = (mode === "resource") ? "block" : "none";
+  isResourcePainting = false;
   currentPolyline = [];
   currentPolygon = [];
   tracePoints = [];
@@ -2748,6 +2860,12 @@ function updateStatus() {
       ? "💧 Штрих готов — Enter: применить, Esc: очистить"
       : "💧 Зажмите ЛКМ и красьте воду";
     statusEl.className = waterMaskHasPaint ? "active" : "";
+  } else if (mode === "resource") {
+    const r = RESOURCE_TYPES.find(t => t.id === currentResource);
+    statusEl.textContent = currentResource === 'eraser'
+      ? "✖ Ластик: тяните по провинциям — все ресурсы снимаются"
+      : `⛏️ Ресурс: ${r ? r.icon + " " + r.name : currentResource} — зажмите ЛКМ и тяните по провинциям`;
+    statusEl.className = "active";
   } else {
     statusEl.textContent = `⏸️ Режим: ${mode}${getSelectionCountText()}`;
     statusEl.className = "";
@@ -3240,6 +3358,35 @@ function redraw() {
     }
   }
 
+  // ===== РЕСУРСЫ ПРОВИНЦИЙ (плашки с иконками в центрах) =====
+  for (const prov of provinces) {
+    if (!Array.isArray(prov.resources) || prov.resources.length === 0) continue;
+    const c = getProvinceCenter(prov);
+    if (!c) continue;
+    const s = worldToScreen(c.x, c.y);
+    const icons = prov.resources
+      .map(rid => RESOURCE_TYPES.find(t => t.id === rid))
+      .filter(Boolean);
+    if (!icons.length) continue;
+    const w = icons.length * 16 + 8;
+    ctx.save();
+    ctx.fillStyle = "rgba(10,13,20,0.78)";
+    ctx.strokeStyle = "rgba(255,255,255,0.25)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(s.x - w / 2, s.y - 10, w, 20, 5);
+    else ctx.rect(s.x - w / 2, s.y - 10, w, 20);
+    ctx.fill();
+    ctx.stroke();
+    ctx.font = "12px sans-serif";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "middle";
+    icons.forEach((r, i) => {
+      ctx.fillText(r.icon, s.x - w / 2 + 5 + i * 16, s.y + 1);
+    });
+    ctx.restore();
+  }
+
   // ===== ИЗМЕНЕНО: превью кисти воды (растровая маска) =====
   if (waterMaskHasPaint) {
     const tl = worldToScreen(0, 0);
@@ -3560,6 +3707,15 @@ canvas.addEventListener("pointerdown", (e) => {
     return;
   }
 
+  if (mode === "resource") {
+    pushUndo();
+    isResourcePainting = true;
+    applyResourceAt(wx, wy);
+    updateStatus();
+    redraw();
+    return;
+  }
+
   if (mode === "province_paint") {
     startProvincePaint(wx, wy);
     return;
@@ -3687,6 +3843,11 @@ canvas.addEventListener("pointermove", (e) => {
     return;
   }
 
+  if (mode === "resource" && isResourcePainting) {
+    applyResourceAt(wx, wy);
+    return;
+  }
+
   if (mode === "province_paint" && isPaintingProvince) {
     continueProvincePaint(wx, wy);
     return;
@@ -3770,6 +3931,13 @@ window.addEventListener("pointerup", (e) => {
     return;
   }
 
+  if (mode === "resource") {
+    isResourcePainting = false;
+    scheduleAutosave();
+    updateStatus();
+    return;
+  }
+
   if (mode === "province_paint" && isPaintingProvince) {
     finishProvincePaint();
     return;
@@ -3819,6 +3987,8 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     return;
   }
+
+  if (e.key === '0') { setMode('resource'); e.preventDefault(); return; }
 
   if (e.key >= '1' && e.key <= '9') {
     const modes = ['select', 'road', 'rail', 'river', 'land', 'trace', 'province_paint', 'connect', 'waterbrush'];
