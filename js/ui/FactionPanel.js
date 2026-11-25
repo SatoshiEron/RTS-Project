@@ -234,7 +234,7 @@ export default class FactionPanel {
         </div>
         <div class="faction-stat">
           <span class="label">🛡️ Гарнизон</span>
-          <span class="value">${capital.garrison} форм.</span>
+          <span class="value">${capital.garrison + (game.getGarrisonBonus ? game.getGarrisonBonus(capital) : 0)} форм.</span>
         </div>
         <div class="faction-stat">
           <span class="label">💰 Доход (в неделю)</span>

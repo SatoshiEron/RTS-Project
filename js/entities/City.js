@@ -41,6 +41,9 @@ export default class City {
 
     this.garrison = garrison;
 
+    // ИЗМЕНЕНО: постройки города (строительство, фаза 1) — id из BUILDINGS.
+    this.buildings = [];
+
     // ===== HP И ЗАЩИТА =====
     this.maxHp = 500;
     this.hp = this.maxHp;

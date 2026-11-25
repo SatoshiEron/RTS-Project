@@ -435,7 +435,10 @@ export default class InputHandler {
       this.game.selectedCity = null;
       this.game.selectedUnit = null;
       this.game.selectedUnits = [];
-      if (this.cityPanel) this.cityPanel.hide();
+      // ИЗМЕНЕНО (строительство, фаза 1; единственный хук по разрешению
+      // руководителя): вместо скрытия панели открываем блок провинции.
+      if (this.cityPanel && this.cityPanel.showProvince) this.cityPanel.showProvince(prov);
+      else if (this.cityPanel) this.cityPanel.hide();
       return;
     }
 
