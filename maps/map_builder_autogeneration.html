@@ -194,7 +194,6 @@
       <button data-mode="select">🖱️ Выделение</button>
       <button data-mode="road">🛤️ Дорога</button>
       <button data-mode="rail">🚆 Ж/Д</button>
-      <button data-mode="river">🌊 Река</button>
       <button data-mode="land">🟩 Суша</button>
       <button data-mode="trace">✏️ Обводка</button>
       <button data-mode="province_paint" style="background:#1a3a2a;border-color:#4a9a6a;">🖌️ Провинции</button>
@@ -2844,8 +2843,8 @@ function updateStatus() {
   } else if (mode === "connect") {
     statusEl.textContent = connectPoints.length > 0 ? `🔗 Соединение: ${connectPoints.length} точек` : "🔗 Кликайте по точкам";
     statusEl.className = connectPoints.length > 0 ? "active" : "";
-  } else if (mode === "road" || mode === "rail" || mode === "river") {
-    const labels = { road: "🛤️ Дорога", rail: "🚆 Ж/Д", river: "🌊 Река" };
+  } else if (mode === "road" || mode === "rail") {
+    const labels = { road: "🛤️ Дорога", rail: "🚆 Ж/Д" };
     statusEl.textContent = currentPolyline.length
       ? `${labels[mode]}: ${currentPolyline.length} точек — Enter: завершить`
       : `${labels[mode]}: кликните для первой точки`;
@@ -3740,7 +3739,7 @@ canvas.addEventListener("pointerdown", (e) => {
     return;
   }
 
-  if (mode === "road" || mode === "rail" || mode === "river") {
+  if (mode === "road" || mode === "rail") {
     const nearest = findNearestPoint(wx, wy);
     if (nearest) {
       if (currentPolyline.length === 0) pushUndo();
@@ -3943,7 +3942,7 @@ window.addEventListener("pointerup", (e) => {
     return;
   }
 
-  if (mode === "road" || mode === "rail" || mode === "river") {
+  if (mode === "road" || mode === "rail") {
     draggedPointId = null;
     return;
   }
@@ -3991,7 +3990,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === '0') { setMode('resource'); e.preventDefault(); return; }
 
   if (e.key >= '1' && e.key <= '9') {
-    const modes = ['select', 'road', 'rail', 'river', 'land', 'trace', 'province_paint', 'connect', 'waterbrush'];
+    const modes = ['select', 'road', 'rail', 'land', 'trace', 'province_paint', 'connect', 'waterbrush'];
     const idx = parseInt(e.key) - 1;
     if (modes[idx]) setMode(modes[idx]);
     e.preventDefault();
@@ -4008,7 +4007,7 @@ window.addEventListener("keydown", (e) => {
     }
     if (mode === "trace" && isTracing) { finishTrace(); e.preventDefault(); return; }
     if (mode === "province_paint" && isPaintingProvince) { finishProvincePaint(); e.preventDefault(); return; }
-    if ((mode === "road" || mode === "rail" || mode === "river") && currentPolyline.length) {
+    if ((mode === "road" || mode === "rail") && currentPolyline.length) {
       currentPolyline = [];
       snapPreviewPointId = null;
       updateStatus();
@@ -4030,7 +4029,7 @@ window.addEventListener("keydown", (e) => {
     return;
   }
 
-  if (e.key === "Enter" && (mode === "road" || mode === "rail" || mode === "river") && currentPolyline.length >= 2) {
+  if (e.key === "Enter" && (mode === "road" || mode === "rail") && currentPolyline.length >= 2) {
     pushUndo();
     const road = addRoad(currentPolyline, mode);
     selectedObjects = [{ type: 'road', id: road.id }];
@@ -4602,7 +4601,7 @@ function updateObjectList() {
   }
 
   for (const road of roads) {
-    const labels = { road: "🛤️ Дорога", rail: "🚆 Ж/Д", river: "🌊 Река" };
+    const labels = { road: "🛤️ Дорога", rail: "🚆 Ж/Д" };
     addItem('road', road.id, `${labels[road.type] || road.type} #${road.id} (${road.pointIds.length} точек)`);
   }
 
@@ -5351,7 +5350,7 @@ updateAutosaveStatus();
 autosaveArmed = true; // дальше redraw будет планировать автосохранение
 offerAutosaveRestore();
 console.log("🗺️ Map Builder — исправленный");
-console.log("📖 Режимы: выделение, дорога, ж/д, река, суша, обводка, провинции, соединить");
+console.log("📖 Режимы: выделение, дорога, ж/д, суша, обводка, провинции, соединить, вода, ресурсы");
 console.log("🔍 Найти сирот — точки без привязки к дорогам или провинциям");
 console.log("🟡 Провинции яркие, с тенью");
 console.log("🗑️ Delete — удаляет выбранный объект");
