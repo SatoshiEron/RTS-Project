@@ -200,6 +200,7 @@
       <button data-mode="connect" style="background:#2a3a4a;border-color:#4a7a9a;">🔗 Соединить</button>
       <button data-mode="waterbrush" style="background:#0f2a44;border-color:#3a8aca;">💧 Кисть воды</button>
       <button data-mode="resource" style="background:#3a2a10;border-color:#ca9a3a;">⛏️ Ресурсы</button>
+      <button data-mode="scenario" style="background:#2a1a3a;border-color:#8a5aca;">🚩 Сценарий</button>
     </div>
     <!-- ИЗМЕНЕНО: управление кистью воды (видно только в режиме waterbrush) -->
     <div id="waterBrushControls" style="display:none;margin-top:6px;">
@@ -235,6 +236,29 @@
       <div class="hint">Тяните по провинциям — каждая получает выбранный ресурс.
         В одной провинции может быть несколько ресурсов. 🐟 — только на воду,
         остальные — только на сушу.</div>
+    </div>
+    <!-- Сценарный режим: владельцы и города (видно только в режиме scenario) -->
+    <div id="scenarioControls" style="display:none;margin-top:6px;font-size:12px;color:#a0b0d0;">
+      <div style="margin:2px 0;">Владелец провинций (кисть):</div>
+      <label><input type="radio" name="scenOwner" value="1" checked> <span style="color:#4da3ff;">■</span> Игрок</label><br>
+      <label><input type="radio" name="scenOwner" value="2"> <span style="color:#ff6a6a;">■</span> ИИ</label><br>
+      <label><input type="radio" name="scenOwner" value="0"> <span style="color:#999;">■</span> Нейтрал</label>
+      <div id="scenarioCityForm" style="display:none;margin-top:6px;border-top:1px solid #2a3040;padding-top:6px;">
+        <div style="margin-bottom:4px;color:#ffd24d;">🏙️ Город</div>
+        <label>Имя: <input id="scenCityName" type="text" style="width:110px;background:#0a0d14;color:#e0e6f5;border:1px solid #2a3040;border-radius:4px;padding:2px 4px;"></label><br>
+        <label>Население: <input id="scenCityPop" type="number" min="0" step="1000" style="width:80px;background:#0a0d14;color:#e0e6f5;border:1px solid #2a3040;border-radius:4px;padding:2px 4px;"></label><br>
+        <label>Уровень: <select id="scenCityLevel" style="background:#0a0d14;color:#e0e6f5;border:1px solid #2a3040;border-radius:4px;">
+          <option value="1">1 — Поселение</option>
+          <option value="2">2 — Городок</option>
+          <option value="3">3 — Город</option>
+          <option value="4">4 — Рег. центр</option>
+          <option value="5">5 — Мегаполис</option>
+        </select></label><br>
+        <label><input id="scenCityCapital" type="checkbox"> ⭐ Столица фракции</label>
+      </div>
+      <div class="hint">Клик по городу — редактировать его. ЛКМ по провинции —
+        назначить владельца. Владелец города = владелец его провинции.
+        Население и уровень игра прочитает из карты (патч движка — отдельно).</div>
     </div>
     <div id="status">⏸️ Выберите режим</div>
   </div>
@@ -602,6 +626,20 @@ const RESOURCE_TYPES = [
 let currentResource = 'fertile';
 let isResourcePainting = false;
 
+// ============================================================
+//  СЦЕНАРНЫЙ РЕЖИМ — владельцы провинций и параметры городов.
+//  prov.owner (+ properties.owner): 0 нейтрал, 1 игрок, 2 ИИ.
+//  Город (точка isCity): name, population, level, isCapital.
+// ============================================================
+const SCENARIO_OWNERS = {
+  0: { name: 'Нейтрал', color: 'rgba(150,150,150,0.30)' },
+  1: { name: 'Игрок',   color: 'rgba(50,150,255,0.30)' },
+  2: { name: 'ИИ',      color: 'rgba(255,80,80,0.30)' },
+};
+let scenarioOwner = 1;
+let isScenarioPainting = false;
+let scenarioCityId = null;
+
 const WATER_GRID = 256;
 let waterMask = new Uint8Array(WATER_GRID * WATER_GRID);
 let waterMaskHasPaint = false;
@@ -684,6 +722,82 @@ function getProvinceAt(wx, wy) {
     if (vertices.length >= 3 && pointInPolygon({ x: wx, y: wy }, vertices)) return prov;
   }
   return null;
+}
+
+// Самая маленькая по bbox провинция под точкой (любой тип).
+function findSmallestProvinceAt(wx, wy) {
+  let best = null, bestArea = Infinity;
+  for (const prov of provinces) {
+    const verts = getProvinceVertices(prov);
+    if (verts.length < 3) continue;
+    if (!pointInPolygon({ x: wx, y: wy }, verts)) continue;
+    let mnx = 1, mny = 1, mxx = 0, mxy = 0;
+    for (const v of verts) {
+      if (v.x < mnx) mnx = v.x; if (v.y < mny) mny = v.y;
+      if (v.x > mxx) mxx = v.x; if (v.y > mxy) mxy = v.y;
+    }
+    const area = (mxx - mnx) * (mxy - mny);
+    if (area < bestArea) { bestArea = area; best = prov; }
+  }
+  return best;
+}
+
+// Кисть владельца: назначить провинции владельца сценария.
+function applyScenarioOwnerAt(wx, wy) {
+  const prov = findSmallestProvinceAt(wx, wy);
+  if (!prov) return;
+  const v = Number(scenarioOwner);
+  const cur = prov.owner ?? (prov.properties && prov.properties.owner) ?? 0;
+  if (cur !== v) {
+    prov.owner = v;
+    if (!prov.properties) prov.properties = {};
+    prov.properties.owner = v;
+    redraw();
+  }
+}
+
+// Хит-тест города (точки isCity) в небольшом радиусе.
+function getCityPointAt(wx, wy, radius = 0.012) {
+  let best = null, bestD = radius;
+  for (const p of points) {
+    if (!p.isCity) continue;
+    const d = Math.hypot(p.x - wx, p.y - wy);
+    if (d < bestD) { bestD = d; best = p; }
+  }
+  return best;
+}
+
+// Форма параметров города.
+function fillScenarioCityForm(pt) {
+  const form = document.getElementById("scenarioCityForm");
+  if (!form || !form.style) return;
+  form.style.display = pt ? "block" : "none";
+  if (!pt) return;
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.value = val;
+  };
+  set("scenCityName", pt.name || "");
+  set("scenCityPop", pt.population ?? 12000);
+  set("scenCityLevel", pt.level ?? 1);
+  const cap = document.getElementById("scenCityCapital");
+  if (cap) cap.checked = !!pt.isCapital;
+}
+
+function applyScenarioCityForm() {
+  const pt = points.find(p => p.id === scenarioCityId && p.isCity);
+  if (!pt) return;
+  const get = id => document.getElementById(id);
+  const nameEl = get("scenCityName");
+  if (nameEl && nameEl.value.trim()) pt.name = nameEl.value.trim();
+  const popEl = get("scenCityPop");
+  if (popEl) pt.population = Math.max(0, Number(popEl.value) || 0);
+  const lvlEl = get("scenCityLevel");
+  if (lvlEl) pt.level = Math.max(1, Math.min(5, Number(lvlEl.value) || 1));
+  const capEl = get("scenCityCapital");
+  if (capEl) pt.isCapital = !!capEl.checked;
+  scheduleAutosave();
+  redraw();
 }
 
 // Хит-тест для кисти ресурсов: из пересекающихся провинций нужной среды
@@ -2779,6 +2893,18 @@ function commitWaterBrush() {
 }
 
 // Привязка управления кистью.
+document.querySelectorAll('input[name="scenOwner"]').forEach(r => {
+  r.addEventListener('change', () => {
+    scenarioOwner = Number(r.value);
+    updateStatus();
+  });
+});
+
+["scenCityName", "scenCityPop", "scenCityLevel", "scenCityCapital"].forEach(id => {
+  const el = document.getElementById(id);
+  if (el) el.addEventListener("change", applyScenarioCityForm);
+});
+
 document.querySelectorAll('input[name="resType"]').forEach(r => {
   r.addEventListener('change', () => {
     currentResource = r.value;
@@ -2816,6 +2942,11 @@ function setMode(newMode) {
   const rc = document.getElementById("resourceControls");
   if (rc) rc.style.display = (mode === "resource") ? "block" : "none";
   isResourcePainting = false;
+  const sc = document.getElementById("scenarioControls");
+  if (sc) sc.style.display = (mode === "scenario") ? "block" : "none";
+  isScenarioPainting = false;
+  scenarioCityId = null;
+  fillScenarioCityForm(null);
   currentPolyline = [];
   currentPolygon = [];
   tracePoints = [];
@@ -2864,6 +2995,12 @@ function updateStatus() {
     statusEl.textContent = currentResource === 'eraser'
       ? "✖ Ластик: тяните по провинциям — все ресурсы снимаются"
       : `⛏️ Ресурс: ${r ? r.icon + " " + r.name : currentResource} — зажмите ЛКМ и тяните по провинциям`;
+    statusEl.className = "active";
+  } else if (mode === "scenario") {
+    const o = SCENARIO_OWNERS[scenarioOwner] || SCENARIO_OWNERS[1];
+    statusEl.textContent = scenarioCityId !== null
+      ? "🏙️ Город выбран — редактируйте форму слева"
+      : `🚩 Владелец: ${o.name} — тяните по провинциям; клик по городу — параметры`;
     statusEl.className = "active";
   } else {
     statusEl.textContent = `⏸️ Режим: ${mode}${getSelectionCountText()}`;
@@ -3357,6 +3494,55 @@ function redraw() {
     }
   }
 
+  // ===== СЦЕНАРНЫЙ РЕЖИМ: тинт владельцев, кольца городов, столицы =====
+  if (mode === "scenario") {
+    for (const prov of provinces) {
+      const owner = prov.owner ?? (prov.properties && prov.properties.owner) ?? 0;
+      if (!owner || !SCENARIO_OWNERS[owner]) continue;
+      const verts = getProvinceVertices(prov);
+      if (verts.length < 3) continue;
+      ctx.save();
+      ctx.fillStyle = SCENARIO_OWNERS[owner].color;
+      ctx.beginPath();
+      for (let i = 0; i < verts.length; i++) {
+        const s = worldToScreen(verts[i].x, verts[i].y);
+        if (i === 0) ctx.moveTo(s.x, s.y); else ctx.lineTo(s.x, s.y);
+      }
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    for (const p of points) {
+      if (!p.isCity) continue;
+      const s = worldToScreen(p.x, p.y);
+      const prov = findSmallestProvinceAt(p.x, p.y);
+      const owner = prov
+        ? (prov.owner ?? (prov.properties && prov.properties.owner) ?? 0)
+        : 0;
+      ctx.save();
+      ctx.strokeStyle = owner === 1 ? "#4da3ff" : owner === 2 ? "#ff6a6a" : "#aaaaaa";
+      ctx.lineWidth = p.id === scenarioCityId ? 4 : 2;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, 10, 0, Math.PI * 2);
+      ctx.stroke();
+      if (p.isCapital) {
+        ctx.font = "14px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText("⭐", s.x + 12, s.y - 12);
+      }
+      if (p.population) {
+        ctx.font = "10px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillStyle = "#e0e6f5";
+        ctx.fillText(Math.round(p.population / 1000) + "К", s.x, s.y + 17);
+      }
+      ctx.restore();
+    }
+  }
+
   // ===== РЕСУРСЫ ПРОВИНЦИЙ (плашки с иконками в центрах) =====
   for (const prov of provinces) {
     if (!Array.isArray(prov.resources) || prov.resources.length === 0) continue;
@@ -3706,6 +3892,25 @@ canvas.addEventListener("pointerdown", (e) => {
     return;
   }
 
+  if (mode === "scenario") {
+    const cityPt = getCityPointAt(wx, wy);
+    if (cityPt) {
+      scenarioCityId = cityPt.id;
+      fillScenarioCityForm(cityPt);
+      updateStatus();
+      redraw();
+      return;
+    }
+    scenarioCityId = null;
+    fillScenarioCityForm(null);
+    pushUndo();
+    isScenarioPainting = true;
+    applyScenarioOwnerAt(wx, wy);
+    updateStatus();
+    redraw();
+    return;
+  }
+
   if (mode === "resource") {
     pushUndo();
     isResourcePainting = true;
@@ -3842,6 +4047,11 @@ canvas.addEventListener("pointermove", (e) => {
     return;
   }
 
+  if (mode === "scenario" && isScenarioPainting) {
+    applyScenarioOwnerAt(wx, wy);
+    return;
+  }
+
   if (mode === "resource" && isResourcePainting) {
     applyResourceAt(wx, wy);
     return;
@@ -3930,6 +4140,13 @@ window.addEventListener("pointerup", (e) => {
     return;
   }
 
+  if (mode === "scenario") {
+    isScenarioPainting = false;
+    scheduleAutosave();
+    updateStatus();
+    return;
+  }
+
   if (mode === "resource") {
     isResourcePainting = false;
     scheduleAutosave();
@@ -3990,7 +4207,7 @@ window.addEventListener("keydown", (e) => {
   if (e.key === '0') { setMode('resource'); e.preventDefault(); return; }
 
   if (e.key >= '1' && e.key <= '9') {
-    const modes = ['select', 'road', 'rail', 'land', 'trace', 'province_paint', 'connect', 'waterbrush'];
+    const modes = ['select', 'road', 'rail', 'land', 'trace', 'province_paint', 'connect', 'waterbrush', 'scenario'];
     const idx = parseInt(e.key) - 1;
     if (modes[idx]) setMode(modes[idx]);
     e.preventDefault();
